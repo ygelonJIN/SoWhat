@@ -1,234 +1,124 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
+import '../theme/mode_theme.dart';
 
-class BattleScoreboard extends StatelessWidget {
-  const BattleScoreboard({super.key, required this.state});
-
-  final BattleState state;
-
-  @override
-  Widget build(BuildContext context) {
-    return _BattleVisualCard(
-      title: '争输赢',
-      child: Row(
-        children: [
-          Expanded(
-            child: _FighterColumn(
-              label: '我',
-              hp: state.userHp,
-              score: state.userScore,
-              color: Colors.redAccent,
-            ),
-          ),
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 12),
-            child: Text(
-              'VS',
-              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
-            ),
-          ),
-          Expanded(
-            child: _FighterColumn(
-              label: 'TA',
-              hp: state.partnerHp,
-              score: state.partnerScore,
-              color: Colors.blueAccent,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class JusticeScale extends StatelessWidget {
-  const JusticeScale({super.key, required this.state});
+/// 根据当前模式分发顶部战场视觉。
+///
+/// 当前版本不再展示树 / 天平 / VS 作为主视觉；页面采用纯色背景，
+/// 这里仅保留可复用的卡片 / 标题组件。
+class ModeVisual extends StatelessWidget {
+  const ModeVisual({super.key, required this.state});
 
   final BattleState state;
 
   @override
   Widget build(BuildContext context) {
-    final balance = state.justiceBalance.clamp(-1.0, 1.0);
-    return _BattleVisualCard(
-      title: '争对错',
-      child: Column(
-        children: [
-          Text(
-            balance < 0
-                ? '目前更偏向我'
-                : balance > 0
-                ? '目前更偏向 TA'
-                : '目前势均力敌',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            height: 160,
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                Positioned(
-                  top: 18,
-                  child: Transform.rotate(
-                    angle: balance * 0.25,
-                    child: Container(
-                      width: 220,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.primary,
-                        borderRadius: BorderRadius.circular(999),
-                      ),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 0,
-                  child: Container(
-                    width: 8,
-                    height: 132,
-                    decoration: BoxDecoration(
-                      color: Theme.of(context).colorScheme.primary,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 70 + balance * 20,
-                  left: 36,
-                  child: const _ScalePan(label: '我', tint: Colors.redAccent),
-                ),
-                Positioned(
-                  top: 70 - balance * 20,
-                  right: 36,
-                  child: const _ScalePan(label: 'TA', tint: Colors.blueAccent),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class LoveTree extends StatelessWidget {
-  const LoveTree({super.key, required this.state});
-
-  final BattleState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final growth = ((state.userLove + state.partnerLove) / 2).clamp(0.0, 1.0);
-    return _BattleVisualCard(
-      title: '争爱',
-      child: Column(
-        children: [
-          Text(
-            growth > 0.65
-                ? '关系正在抽芽'
-                : growth > 0.45
-                ? '树还活着，需要一起浇水'
-                : '先照顾关系，再继续争论',
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 10),
-          SizedBox(
-            height: 150,
-            child: Stack(
-              alignment: Alignment.bottomCenter,
-              children: [
-                Container(
-                  width: 16,
-                  height: 66 + growth * 48,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF8D5A3B),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-                Positioned(
-                  bottom: 54 + growth * 34,
-                  child: Container(
-                    width: 110 + growth * 46,
-                    height: 78 + growth * 18,
-                    decoration: BoxDecoration(
-                      color: Color.lerp(
-                        const Color(0xFFB6DD84),
-                        const Color(0xFF3A9142),
-                        growth,
-                      ),
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: 4,
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _WaterDrop(active: state.userLove > 0.45),
-                      const SizedBox(width: 18),
-                      _WaterDrop(active: state.partnerLove > 0.45),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    return const SizedBox.shrink();
   }
 }
 
 class BattleAnalysisCard extends StatelessWidget {
-  const BattleAnalysisCard({super.key, required this.card});
+  const BattleAnalysisCard({super.key, required this.card, required this.mode});
 
   final BattleCard card;
+  final ModeTheme mode;
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final radius = mode.cardRadius;
+
+    final cardColor = switch (mode.view) {
+      BattleView.win => const Color(0xFF16161A),
+      BattleView.right => const Color(0xFF2D2A24),
+      BattleView.love => const Color(0xFF5B7F50),
+    };
+    final titleColor = switch (mode.view) {
+      BattleView.win => const Color(0xFF9C9CA6),
+      BattleView.right => const Color(0xFFE0AE40),
+      BattleView.love => Colors.white,
+    };
+    final bodyColor = switch (mode.view) {
+      BattleView.win => Colors.white,
+      BattleView.right => const Color(0xFFF2E9D6),
+      BattleView.love => Colors.white,
+    };
+    final mutedColor = switch (mode.view) {
+      BattleView.win => const Color(0xFF9C9CA6),
+      BattleView.right => const Color(0xFFB09B74),
+      BattleView.love => const Color(0xFFD9E8D4),
+    };
+    final borderColor = switch (mode.view) {
+      BattleView.win => Colors.white.withValues(alpha: 0.22),
+      BattleView.right => const Color(0xFFE0AE40).withValues(alpha: 0.4),
+      BattleView.love => Colors.white.withValues(alpha: 0.18),
+    };
+
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: Theme.of(
-            context,
-          ).colorScheme.outlineVariant.withValues(alpha: 0.5),
-        ),
+        color: cardColor,
+        borderRadius: radius,
+        border: Border.all(color: borderColor),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: mode.view == BattleView.win ? 0.35 : 0.06),
+            blurRadius: 18,
+            offset: const Offset(0, 8),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            card.title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          Row(
+            children: [
+              Container(
+                width: 3,
+                height: 14,
+                decoration: BoxDecoration(
+                  color: titleColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                card.title,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: titleColor,
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
-          Text(card.conclusion),
+          Text(
+            card.conclusion,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: bodyColor,
+              height: 1.5,
+            ),
+          ),
           const SizedBox(height: 10),
           Text(
             '依据：${card.evidence}',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: Colors.black54),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: mutedColor,
+              height: 1.4,
+            ),
           ),
           if (card.speculation != null) ...[
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             Text(
               '推测：${card.speculation}',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: Colors.black54),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: mutedColor,
+                height: 1.4,
+              ),
             ),
           ],
         ],

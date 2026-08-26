@@ -7,11 +7,13 @@ import '../models/models.dart';
 import '../providers/app_providers.dart';
 import '../repositories/memory_app_repository.dart';
 import '../services/prompt_service.dart';
+import '../theme/mode_theme.dart';
 import '../widgets/battle/battle_canvas.dart';
 
 /// 主聊天界面（产品文档 3.1）。
 ///
-/// 打开即此页。输入框 + 三模式切换 + 战场视觉 + 分析留白区。
+/// 现在是“全屏聊天 + 浮层控制”：顶部设置/日期、模式切换、输入框都悬浮在
+/// 聊天内容上方，不再占用页面布局高度。
 class BattleScreen extends ConsumerStatefulWidget {
   const BattleScreen({super.key});
 
@@ -41,8 +43,6 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     super.dispose();
   }
 
-  // ─── 发送文本 ──────────────────────────────────────────────────────────
-
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     if (text.isEmpty || ref.read(isAnalyzingProvider)) return;
@@ -61,8 +61,6 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
       _showError('发送失败，请稍后重试。');
     }
   }
-
-  // ─── 上传截图 ──────────────────────────────────────────────────────────
 
   Future<void> _pickImages() async {
     if (ref.read(isAnalyzingProvider)) return;
@@ -87,8 +85,6 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     }
   }
 
-  // ─── 运行分析 ──────────────────────────────────────────────────────────
-
   Future<void> _runAnalysis() async {
     if (ref.read(isAnalyzingProvider)) return;
     try {
@@ -97,8 +93,6 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
       _showError('分析失败，请稍后重试。', error);
     }
   }
-
-  // ─── 切换视角（触发重分析） ────────────────────────────────────────────
 
   Future<void> _selectView(BattleView view) async {
     if (ref.read(isAnalyzingProvider)) return;
@@ -110,8 +104,6 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
       _showError('切换视角失败，请稍后重试。', error);
     }
   }
-
-  // ─── 导出分析包（V1 通道 A，复制到剪贴板） ────────────────────────────
 
   Future<void> _exportPrompt() async {
     final view = ref.read(selectedBattleViewProvider);
@@ -137,6 +129,10 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     } catch (error) {
       _showError('复制分析包失败，请稍后重试。', error);
     }
+  }
+
+  void _showSettingsPlaceholder() {
+    _showSnackBar('设置功能将在后续版本开放。');
   }
 
   void _showSnackBar(String message) {
@@ -167,8 +163,6 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     });
   }
 
-  // ─── 构建 ──────────────────────────────────────────────────────────────
-
   @override
   Widget build(BuildContext context) {
     final battleAsync = ref.watch(battleStateProvider);
@@ -179,66 +173,149 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     final isAnalyzing = ref.watch(isAnalyzingProvider);
     final identityConfirmed = ref.watch(userIdentityProvider);
 
-    return Scaffold(
-      body: SafeArea(
-        child: Column(
-          children: [
-            // 顶栏
-            _ChatTopBar(
-              onExportPrompt: _exportPrompt,
-              isAnalyzing: isAnalyzing,
-            ),
+    final mode = ModeThemes.of(selectedView);
+    final messages = messagesAsync.valueOrNull ?? const [];
 
-            // 主区域
-            Expanded(
-              child: battleAsync.when(
-                data: (battle) => BattleCanvas(
-                  state: battle,
-                  messages: messagesAsync.valueOrNull ?? const [],
+    return Theme(
+      data: mode.themeData,
+      child: Scaffold(
+        body: AnnotatedRegion<SystemUiOverlayStyle>(
+          value: mode.isDark
+              ? SystemUiOverlayStyle.light
+              : SystemUiOverlayStyle.dark,
+          child: Stack(
+            children: [
+              Positioned.fill(child: Container(color: mode.background)),
+              Positioned.fill(
+                child: BattleCanvas(
+                  state: battleAsync.valueOrNull ?? BattleState.initial(selectedView),
+                  messages: messages,
                   scrollController: _scrollController,
                 ),
-                loading: () => const Center(child: CircularProgressIndicator()),
-                error: (error, stack) => Center(child: Text('加载失败：$error')),
               ),
-            ),
-
-            // 身份确认（首次使用）
-            if (!identityConfirmed)
-              _IdentityBanner(onConfirm: _confirmIdentity),
-
-            // 模式选择 + 分析中指示
-            _ModePicker(
-              selectedView: selectedView,
-              onSelected: _selectView,
-              isAnalyzing: isAnalyzing,
-            ),
-
-            // 输入框
-            _ChatComposer(
-              controller: _messageController,
-              onSend: _sendMessage,
-              onAttach: _pickImages,
-              isAnalyzing: isAnalyzing,
-            ),
-          ],
+              // 顶部渐变遮罩：让设置/日期从页面顶端自然过渡出来。
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                height: 150,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          mode.background.withValues(alpha: 1.0),
+                          mode.background.withValues(alpha: 0.82),
+                          mode.background.withValues(alpha: 0.30),
+                          mode.background.withValues(alpha: 0),
+                        ],
+                        stops: const [0.0, 0.42, 0.78, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 0,
+                left: 0,
+                right: 0,
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
+                    child: _FloatingTopChrome(
+                      mode: mode,
+                      onExportPrompt: _exportPrompt,
+                      onSettings: _showSettingsPlaceholder,
+                      isAnalyzing: isAnalyzing,
+                    ),
+                  ),
+                ),
+              ),
+              // 底部渐变遮罩：让模式按钮与输入框从聊天内容里自然浮起。
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                height: 240,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.bottomCenter,
+                        end: Alignment.topCenter,
+                        colors: [
+                          mode.background.withValues(alpha: 1.0),
+                          mode.background.withValues(alpha: 0.9),
+                          mode.background.withValues(alpha: 0.48),
+                          mode.background.withValues(alpha: 0),
+                        ],
+                        stops: const [0.0, 0.34, 0.72, 1.0],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _FloatingModePicker(
+                          mode: mode,
+                          selectedView: selectedView,
+                          onSelected: _selectView,
+                          isAnalyzing: isAnalyzing,
+                        ),
+                        const SizedBox(height: 10),
+                        if (!identityConfirmed) ...[
+                          _IdentityBanner(onConfirm: _confirmIdentity),
+                          const SizedBox(height: 8),
+                        ],
+                        _ChatComposer(
+                          mode: mode,
+                          controller: _messageController,
+                          onSend: _sendMessage,
+                          onAttach: _pickImages,
+                          isAnalyzing: isAnalyzing,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 
   void _confirmIdentity() {
-    // 默认：用户是 Party.a（我），对方是 Party.b（TA）
     ref.read(userIdentityProvider.notifier).state = true;
     _showSnackBar('已确认：「我」= 你，「TA」= 对方');
   }
 }
 
-// ─── 顶栏 ─────────────────────────────────────────────────────────────────
+class _FloatingTopChrome extends StatelessWidget {
+  const _FloatingTopChrome({
+    required this.mode,
+    required this.onExportPrompt,
+    required this.onSettings,
+    required this.isAnalyzing,
+  });
 
-class _ChatTopBar extends StatelessWidget {
-  const _ChatTopBar({required this.onExportPrompt, required this.isAnalyzing});
-
+  final ModeTheme mode;
   final VoidCallback onExportPrompt;
+  final VoidCallback onSettings;
   final bool isAnalyzing;
 
   @override
@@ -247,196 +324,139 @@ class _ChatTopBar extends StatelessWidget {
     final date =
         '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}  '
         '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 10, 18, 8),
-      child: Row(
-        children: [
-          // 导出分析包按钮（V1 核心通道）
-          IconButton(
-            onPressed: onExportPrompt,
-            icon: const Icon(Icons.copy_rounded),
-            tooltip: '复制分析包（粘贴到免费 AI 分析）',
-          ),
-          const SizedBox(width: 4),
-          Text(
-            '爱·对·赢',
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-          ),
-          if (isAnalyzing) ...[
-            const SizedBox(width: 8),
-            SizedBox(
-              width: 16,
-              height: 16,
-              child: CircularProgressIndicator(
-                strokeWidth: 2,
-                color: Theme.of(context).colorScheme.primary,
-              ),
+
+    return Row(
+      children: [
+        PopupMenuButton<String>(
+          tooltip: '菜单',
+          onSelected: (value) {
+            if (value == 'export') {
+              onExportPrompt();
+            } else if (value == 'settings') {
+              onSettings();
+            }
+          },
+          itemBuilder: (context) => const [
+            PopupMenuItem(
+              value: 'export',
+              child: Text('复制分析包（粘贴到免费 AI 分析）'),
             ),
+            PopupMenuItem(value: 'settings', child: Text('设置（占位）')),
           ],
-          const Spacer(),
-          Text(
-            date,
-            style: Theme.of(
-              context,
-            ).textTheme.labelMedium?.copyWith(color: Colors.black54),
+          child: _PillButton(
+            mode: mode,
+            icon: Icons.menu_rounded,
+            label: '设置',
+            highlight: isAnalyzing,
           ),
-        ],
-      ),
+        ),
+        const Spacer(),
+        _PillButton(
+          mode: mode,
+          icon: Icons.calendar_today_rounded,
+          label: date,
+          compact: true,
+        ),
+      ],
     );
   }
 }
 
-// ─── 身份确认横幅 ─────────────────────────────────────────────────────────
-
-class _IdentityBanner extends StatelessWidget {
-  const _IdentityBanner({required this.onConfirm});
-
-  final VoidCallback onConfirm;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.info_outline,
-            size: 20,
-            color: Theme.of(context).colorScheme.primary,
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              '哪边是你？「我」= 你，「TA」= 对方。确认后 AI 会一直记得。',
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton.tonalIcon(
-            onPressed: onConfirm,
-            icon: const Icon(Icons.check, size: 18),
-            label: const Text('确认'),
-            style: FilledButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── 模式选择器 ────────────────────────────────────────────────────────────
-
-class _ModePicker extends StatelessWidget {
-  const _ModePicker({
+class _FloatingModePicker extends StatelessWidget {
+  const _FloatingModePicker({
+    required this.mode,
     required this.selectedView,
     required this.onSelected,
     required this.isAnalyzing,
   });
 
+  final ModeTheme mode;
   final BattleView selectedView;
   final ValueChanged<BattleView> onSelected;
   final bool isAnalyzing;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
-      child: Row(
-        children: [
-          const Spacer(),
-          // 三种模式直接切换按钮
-          _ViewChip(
-            label: '争爱',
-            icon: Icons.favorite_outline_rounded,
-            selected: selectedView == BattleView.love,
-            onTap: () => onSelected(BattleView.love),
-            disabled: isAnalyzing,
-          ),
-          const SizedBox(width: 6),
-          _ViewChip(
-            label: '争对错',
-            icon: Icons.balance_rounded,
-            selected: selectedView == BattleView.right,
-            onTap: () => onSelected(BattleView.right),
-            disabled: isAnalyzing,
-          ),
-          const SizedBox(width: 6),
-          _ViewChip(
-            label: '争输赢',
-            icon: Icons.sports_kabaddi_rounded,
-            selected: selectedView == BattleView.win,
-            onTap: () => onSelected(BattleView.win),
-            disabled: isAnalyzing,
-          ),
-        ],
-      ),
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _FloatModeButton(
+          mode: mode,
+          label: '为爱',
+          selected: selectedView == BattleView.love,
+          onTap: () => onSelected(BattleView.love),
+          disabled: isAnalyzing,
+        ),
+        const SizedBox(width: 10),
+        _FloatModeButton(
+          mode: mode,
+          label: '论对错',
+          selected: selectedView == BattleView.right,
+          onTap: () => onSelected(BattleView.right),
+          disabled: isAnalyzing,
+        ),
+        const SizedBox(width: 10),
+        _FloatModeButton(
+          mode: mode,
+          label: '比输赢',
+          selected: selectedView == BattleView.win,
+          onTap: () => onSelected(BattleView.win),
+          disabled: isAnalyzing,
+        ),
+      ],
     );
   }
 }
 
-class _ViewChip extends StatelessWidget {
-  const _ViewChip({
-    required this.label,
+class _PillButton extends StatelessWidget {
+  const _PillButton({
+    required this.mode,
     required this.icon,
-    required this.selected,
-    required this.onTap,
-    this.disabled = false,
+    required this.label,
+    this.highlight = false,
+    this.compact = false,
   });
 
-  final String label;
+  final ModeTheme mode;
   final IconData icon;
-  final bool selected;
-  final VoidCallback onTap;
-  final bool disabled;
+  final String label;
+  final bool highlight;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final isActive = selected;
+    final foreground = highlight ? scheme.onPrimary : scheme.onSurface.withValues(alpha: 0.74);
+
     return Material(
-      color: isActive ? scheme.primaryContainer : Colors.white,
-      borderRadius: BorderRadius.circular(999),
+      color: highlight ? scheme.primary : scheme.surface.withValues(alpha: 0.92),
+      shape: RoundedRectangleBorder(
+        borderRadius: mode.chipRadius,
+        side: BorderSide(
+          color: (highlight ? scheme.primary : mode.textMuted).withValues(alpha: 0.55),
+          width: 1,
+        ),
+      ),
+      elevation: 2,
+      shadowColor: Colors.black.withValues(alpha: 0.16),
       child: InkWell(
-        onTap: disabled ? null : onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(
-              color: isActive
-                  ? scheme.primary.withValues(alpha: 0.4)
-                  : scheme.outlineVariant.withValues(alpha: 0.5),
-            ),
+        borderRadius: mode.chipRadius,
+        child: Padding(
+          padding: EdgeInsets.symmetric(
+            horizontal: compact ? 14 : 16,
+            vertical: compact ? 9 : 10,
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                icon,
-                size: 16,
-                color: isActive ? scheme.primary : scheme.outline,
-              ),
-              const SizedBox(width: 5),
+              Icon(icon, size: 16, color: foreground),
+              const SizedBox(width: 6),
               Text(
                 label,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  fontWeight: isActive ? FontWeight.w700 : FontWeight.w500,
-                  color: isActive ? scheme.primary : scheme.outline,
+                style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: foreground,
                 ),
               ),
             ],
@@ -447,16 +467,124 @@ class _ViewChip extends StatelessWidget {
   }
 }
 
-// ─── 输入框 ────────────────────────────────────────────────────────────────
+class _FloatModeButton extends StatelessWidget {
+  const _FloatModeButton({
+    required this.mode,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    this.disabled = false,
+  });
+
+  final ModeTheme mode;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final bool disabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final foreground = selected ? scheme.onPrimary : scheme.onSurface.withValues(alpha: 0.74);
+
+    return Material(
+      color: selected ? scheme.primary : scheme.surface.withValues(alpha: 0.92),
+      shape: RoundedRectangleBorder(
+        borderRadius: mode.chipRadius,
+        side: BorderSide(
+          color: (selected ? scheme.primary : mode.textMuted).withValues(alpha: 0.55),
+          width: 1,
+        ),
+      ),
+      elevation: selected ? 5 : 2,
+      shadowColor: Colors.black.withValues(alpha: 0.18),
+      child: InkWell(
+        onTap: disabled ? null : onTap,
+        borderRadius: mode.chipRadius,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+              color: foreground,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _IdentityBanner extends StatelessWidget {
+  const _IdentityBanner({required this.onConfirm});
+
+  final VoidCallback onConfirm;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final radius =
+        (Theme.of(context).cardTheme.shape as RoundedRectangleBorder?)
+            ?.borderRadius ??
+        BorderRadius.circular(16);
+
+    return Material(
+      color: scheme.primaryContainer.withValues(alpha: 0.96),
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(
+          color: scheme.primary.withValues(alpha: 0.4),
+          width: 1,
+        ),
+      ),
+      elevation: 2,
+      shadowColor: Colors.black.withValues(alpha: 0.10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        child: Row(
+          children: [
+            Icon(Icons.info_outline, size: 18, color: scheme.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '哪边是你？「我」= 你，「TA」= 对方。确认后 AI 会一直记得。',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: scheme.onPrimaryContainer,
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.tonalIcon(
+              onPressed: onConfirm,
+              icon: const Icon(Icons.check, size: 16),
+              label: const Text('确认'),
+              style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
 
 class _ChatComposer extends StatelessWidget {
   const _ChatComposer({
+    required this.mode,
     required this.controller,
     required this.onSend,
     required this.onAttach,
     this.isAnalyzing = false,
   });
 
+  final ModeTheme mode;
   final TextEditingController controller;
   final VoidCallback onSend;
   final VoidCallback onAttach;
@@ -464,42 +592,103 @@ class _ChatComposer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: Material(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface.withValues(alpha: 0.96),
+      shape: RoundedRectangleBorder(
+        borderRadius: mode.inputRadius,
+        side: BorderSide(
+          color: mode.textMuted.withValues(alpha: 0.5),
+          width: 1,
+        ),
+      ),
+      elevation: 3,
+      shadowColor: Colors.black.withValues(alpha: 0.14),
+      child: Container(
+        decoration: BoxDecoration(
+          borderRadius: mode.inputRadius,
+          border: mode.inputBorderWidth > 0
+              ? Border.all(
+                  color: mode.inputBorderColor,
+                  width: mode.inputBorderWidth,
+                )
+              : null,
+        ),
         child: TextField(
           controller: controller,
           minLines: 1,
           maxLines: 4,
+          style: TextStyle(
+            color: mode.text,
+            fontSize: 16,
+            fontWeight: mode.view == BattleView.win
+                ? FontWeight.w500
+                : FontWeight.w400,
+          ),
+          cursorColor: mode.primary,
           textInputAction: TextInputAction.newline,
           decoration: InputDecoration(
-            hintText: '把对话贴进来，或发一张截图…',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(24),
-              borderSide: BorderSide.none,
-            ),
-            filled: true,
-            fillColor: Colors.white,
-            contentPadding: const EdgeInsets.fromLTRB(18, 14, 8, 14),
+            hintText: '把对话贴进来，或发一张图',
+            hintStyle: TextStyle(color: mode.textMuted, fontSize: 13),
+            border: InputBorder.none,
+            contentPadding: const EdgeInsets.fromLTRB(18, 13, 8, 13),
             suffixIcon: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 IconButton(
                   onPressed: isAnalyzing ? null : onAttach,
-                  icon: const Icon(Icons.add_rounded),
+                  icon: Icon(Icons.add_rounded, color: mode.primary),
                   tooltip: '上传截图',
                 ),
-                IconButton(
-                  onPressed: isAnalyzing ? null : onSend,
-                  icon: const Icon(Icons.arrow_upward_rounded),
-                  tooltip: '发送',
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: _SendButton(
+                    mode: mode,
+                    onPressed: isAnalyzing ? null : onSend,
+                  ),
                 ),
               ],
             ),
           ),
-          onSubmitted: (_) => isAnalyzing ? null : onSend(),
+          onSubmitted: (_) {
+            if (!isAnalyzing) onSend();
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _SendButton extends StatelessWidget {
+  const _SendButton({required this.mode, required this.onPressed});
+
+  final ModeTheme mode;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: onPressed == null
+          ? mode.primary.withValues(alpha: 0.38)
+          : mode.primary,
+      shape: RoundedRectangleBorder(
+        borderRadius: mode.chipRadius,
+        side: BorderSide(
+          color: mode.primary.withValues(alpha: onPressed == null ? 0.4 : 0.8),
+          width: 1,
+        ),
+      ),
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: mode.chipRadius,
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(
+            Icons.arrow_upward_rounded,
+            size: 20,
+            color: mode.onPrimary,
+          ),
         ),
       ),
     );
