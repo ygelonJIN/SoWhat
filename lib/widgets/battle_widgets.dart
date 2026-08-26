@@ -13,12 +13,29 @@ class BattleScoreboard extends StatelessWidget {
       title: '争输赢',
       child: Row(
         children: [
-          Expanded(child: _FighterColumn(label: '我', hp: state.userHp, score: state.userScore, color: Colors.redAccent)),
+          Expanded(
+            child: _FighterColumn(
+              label: '我',
+              hp: state.userHp,
+              score: state.userScore,
+              color: Colors.redAccent,
+            ),
+          ),
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 12),
-            child: Text('VS', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+            child: Text(
+              'VS',
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+            ),
           ),
-          Expanded(child: _FighterColumn(label: 'TA', hp: state.partnerHp, score: state.partnerScore, color: Colors.blueAccent)),
+          Expanded(
+            child: _FighterColumn(
+              label: 'TA',
+              hp: state.partnerHp,
+              score: state.partnerScore,
+              color: Colors.blueAccent,
+            ),
+          ),
         ],
       ),
     );
@@ -38,8 +55,14 @@ class JusticeScale extends StatelessWidget {
       child: Column(
         children: [
           Text(
-            balance < 0 ? '目前更偏向我' : balance > 0 ? '目前更偏向 TA' : '目前势均力敌',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            balance < 0
+                ? '目前更偏向我'
+                : balance > 0
+                ? '目前更偏向 TA'
+                : '目前势均力敌',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -72,8 +95,16 @@ class JusticeScale extends StatelessWidget {
                     ),
                   ),
                 ),
-                Positioned(top: 70 + balance * 20, left: 36, child: const _ScalePan(label: '我', tint: Colors.redAccent)),
-                Positioned(top: 70 - balance * 20, right: 36, child: const _ScalePan(label: 'TA', tint: Colors.blueAccent)),
+                Positioned(
+                  top: 70 + balance * 20,
+                  left: 36,
+                  child: const _ScalePan(label: '我', tint: Colors.redAccent),
+                ),
+                Positioned(
+                  top: 70 - balance * 20,
+                  right: 36,
+                  child: const _ScalePan(label: 'TA', tint: Colors.blueAccent),
+                ),
               ],
             ),
           ),
@@ -96,8 +127,14 @@ class LoveTree extends StatelessWidget {
       child: Column(
         children: [
           Text(
-            growth > 0.65 ? '关系正在抽芽' : growth > 0.45 ? '树还活着，需要一起浇水' : '先照顾关系，再继续争论',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            growth > 0.65
+                ? '关系正在抽芽'
+                : growth > 0.45
+                ? '树还活着，需要一起浇水'
+                : '先照顾关系，再继续争论',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 10),
           SizedBox(
@@ -108,7 +145,10 @@ class LoveTree extends StatelessWidget {
                 Container(
                   width: 16,
                   height: 66 + growth * 48,
-                  decoration: BoxDecoration(color: const Color(0xFF8D5A3B), borderRadius: BorderRadius.circular(999)),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF8D5A3B),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
                 Positioned(
                   bottom: 54 + growth * 34,
@@ -116,7 +156,11 @@ class LoveTree extends StatelessWidget {
                     width: 110 + growth * 46,
                     height: 78 + growth * 18,
                     decoration: BoxDecoration(
-                      color: Color.lerp(const Color(0xFFB6DD84), const Color(0xFF3A9142), growth),
+                      color: Color.lerp(
+                        const Color(0xFFB6DD84),
+                        const Color(0xFF3A9142),
+                        growth,
+                      ),
                       shape: BoxShape.circle,
                     ),
                   ),
@@ -154,19 +198,38 @@ class BattleAnalysisCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.5)),
+        border: Border.all(
+          color: Theme.of(
+            context,
+          ).colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(card.title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+          Text(
+            card.title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+          ),
           const SizedBox(height: 8),
           Text(card.conclusion),
           const SizedBox(height: 10),
-          Text('依据：${card.evidence}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54)),
+          Text(
+            '依据：${card.evidence}',
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.black54),
+          ),
           if (card.speculation != null) ...[
             const SizedBox(height: 8),
-            Text('推测：${card.speculation}', style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.black54)),
+            Text(
+              '推测：${card.speculation}',
+              style: Theme.of(
+                context,
+              ).textTheme.bodySmall?.copyWith(color: Colors.black54),
+            ),
           ],
         ],
       ),
@@ -188,18 +251,35 @@ class _BattleVisualCard extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(28),
-        border: Border.all(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.5)),
+        border: Border.all(
+          color: Theme.of(
+            context,
+          ).colorScheme.outlineVariant.withValues(alpha: 0.5),
+        ),
       ),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800)),
-        child,
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          child,
+        ],
+      ),
     );
   }
 }
 
 class _FighterColumn extends StatelessWidget {
-  const _FighterColumn({required this.label, required this.hp, required this.score, required this.color});
+  const _FighterColumn({
+    required this.label,
+    required this.hp,
+    required this.score,
+    required this.color,
+  });
 
   final String label;
   final double hp;
@@ -210,11 +290,24 @@ class _FighterColumn extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        Text(label, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+        Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        ),
         const SizedBox(height: 8),
-        LinearProgressIndicator(minHeight: 12, value: hp.clamp(0.0, 1.0), backgroundColor: color.withOpacity(0.14), valueColor: AlwaysStoppedAnimation<Color>(color)),
+        LinearProgressIndicator(
+          minHeight: 12,
+          value: hp.clamp(0.0, 1.0),
+          backgroundColor: color.withValues(alpha: 0.14),
+          valueColor: AlwaysStoppedAnimation<Color>(color),
+        ),
         const SizedBox(height: 6),
-        Text('${score.round()} 分', style: Theme.of(context).textTheme.titleSmall),
+        Text(
+          '${score.round()} 分',
+          style: Theme.of(context).textTheme.titleSmall,
+        ),
       ],
     );
   }
@@ -231,9 +324,16 @@ class _ScalePan extends StatelessWidget {
     return Container(
       width: 74,
       height: 42,
-      decoration: BoxDecoration(color: tint.withOpacity(0.14), borderRadius: BorderRadius.circular(18), border: Border.all(color: tint.withOpacity(0.3))),
+      decoration: BoxDecoration(
+        color: tint.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: tint.withOpacity(0.3)),
+      ),
       alignment: Alignment.center,
-      child: Text(label, style: TextStyle(color: tint, fontWeight: FontWeight.w700)),
+      child: Text(
+        label,
+        style: TextStyle(color: tint, fontWeight: FontWeight.w700),
+      ),
     );
   }
 }
@@ -245,6 +345,10 @@ class _WaterDrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Icon(Icons.water_drop_rounded, color: active ? Colors.lightBlue : Colors.black12, size: 26);
+    return Icon(
+      Icons.water_drop_rounded,
+      color: active ? Colors.lightBlue : Colors.black12,
+      size: 26,
+    );
   }
 }

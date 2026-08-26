@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
@@ -26,9 +28,9 @@ class BattleCanvas extends StatelessWidget {
         Text(
           state.headline,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                height: 1.35,
-              ),
+            fontWeight: FontWeight.w700,
+            height: 1.35,
+          ),
         ),
         const SizedBox(height: 14),
         if (messages.isEmpty)
@@ -67,17 +69,23 @@ class _EmptyChatHint extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.72),
+        color: Colors.white.withValues(alpha: 0.72),
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: Colors.black.withOpacity(0.05)),
+        border: Border.all(color: Colors.black.withValues(alpha: 0.05)),
       ),
       child: Column(
         children: [
-          Icon(Icons.forum_outlined, size: 34, color: Theme.of(context).colorScheme.primary),
+          Icon(
+            Icons.forum_outlined,
+            size: 34,
+            color: Theme.of(context).colorScheme.primary,
+          ),
           const SizedBox(height: 12),
           Text(
             '这里是你们的对话空间',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 6),
           const Text(
@@ -120,15 +128,63 @@ class _MessageBubble extends StatelessWidget {
             Text(
               message.partyLabel,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: scheme.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
+                color: scheme.primary,
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 4),
-            Text(message.content),
+            if (message.isImageType && message.assetPath != null)
+              _ImageContent(message: message)
+            else
+              Text(message.content),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _ImageContent extends StatelessWidget {
+  const _ImageContent({required this.message});
+
+  final Message message;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = message.assetPath;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (path != null)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: Image.file(
+              File(path),
+              width: 180,
+              height: 180,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => Container(
+                width: 180,
+                height: 120,
+                color: Colors.black.withValues(alpha: 0.05),
+                alignment: Alignment.center,
+                child: const Icon(
+                  Icons.broken_image_outlined,
+                  color: Colors.black38,
+                ),
+              ),
+            ),
+          ),
+        if (message.content.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Text(
+            message.content,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: Colors.black54),
+          ),
+        ],
+      ],
     );
   }
 }

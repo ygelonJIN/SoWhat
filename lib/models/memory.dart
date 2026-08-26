@@ -18,8 +18,8 @@ class MemoryProfile {
     this.relationshipSummary,
     this.entries = const [],
     DateTime? updatedAt,
-  })  : id = id ?? const Uuid().v4(),
-        updatedAt = updatedAt ?? DateTime.now();
+  }) : id = id ?? const Uuid().v4(),
+       updatedAt = updatedAt ?? DateTime.now();
 
   factory MemoryProfile.empty() => MemoryProfile(id: 'relationship-memory');
 
@@ -48,6 +48,7 @@ class MemoryEntry {
   final String summary;
   final String? source;
   final DateTime createdAt;
+  final bool isDeleted;
 
   MemoryEntry({
     String? id,
@@ -55,6 +56,18 @@ class MemoryEntry {
     required this.summary,
     this.source,
     DateTime? createdAt,
-  })  : id = id ?? const Uuid().v4(),
-        createdAt = createdAt ?? DateTime.now();
+    this.isDeleted = false,
+  }) : id = id ?? const Uuid().v4(),
+       createdAt = createdAt ?? DateTime.now();
+
+  MemoryEntry copyWith({bool? isDeleted}) {
+    return MemoryEntry(
+      id: id,
+      kind: kind,
+      summary: summary,
+      source: source,
+      createdAt: createdAt,
+      isDeleted: isDeleted ?? this.isDeleted,
+    );
+  }
 }

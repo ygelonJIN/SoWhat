@@ -7,13 +7,9 @@ class Case {
   final DateTime createdAt;
   final String? background;
 
-  Case({
-    String? id,
-    required this.title,
-    DateTime? createdAt,
-    this.background,
-  })  : id = id ?? const Uuid().v4(),
-        createdAt = createdAt ?? DateTime.now();
+  Case({String? id, required this.title, DateTime? createdAt, this.background})
+    : id = id ?? const Uuid().v4(),
+      createdAt = createdAt ?? DateTime.now();
 
   String get displayTitle => title.isNotEmpty ? title : '未命名对话';
 

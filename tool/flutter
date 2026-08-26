@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # LRW 工作区统一的 flutter 入口。
 #
-# - 接管完整 bootstrap（绕过外置盘 SDK 中被改写的 bin/flutter shim），
-#   直接 source 外置盘 SDK 的 shared.sh 并调用 shared::execute
-# - FLUTTER_ROOT 指向外置盘 SDK（通过 .fvm/versions/stable 软链解析）
-# - PUB_CACHE 固定在工作区 .fvm/pub-cache，与外置盘 SDK 隔离
+# - SDK 本体放在本机固定路径（通过 .fvm/versions/stable 软链解析，指向本机 SDK）
+# - PUB_CACHE 固定在工作区 .fvm/pub-cache，与 SDK 隔离
+# - 直接 source SDK 的 shared.sh 并调用 shared::execute（对应 stock bin/flutter 的职责）
 #
 # 用法：tool/flutter pub get / build / run / ...
 set -e

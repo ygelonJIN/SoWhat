@@ -22,10 +22,11 @@ class Message {
     required this.type,
     required this.content,
     this.assetPath,
-  })  : id = id ?? const Uuid().v4(),
-        createdAt = createdAt ?? DateTime.now();
+  }) : id = id ?? const Uuid().v4(),
+       createdAt = createdAt ?? DateTime.now();
 
   String get partyLabel => party == Party.a ? '我' : 'TA';
 
-  bool get isImageType => type == MessageType.image || type == MessageType.sticker;
+  bool get isImageType =>
+      type == MessageType.image || type == MessageType.sticker;
 }

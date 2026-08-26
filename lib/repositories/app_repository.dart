@@ -15,5 +15,13 @@ abstract class AppRepository {
   Future<void> addMessage(Message message);
   Future<void> saveAnalysis(Analysis analysis);
   Future<void> saveMemory(MemoryProfile memory);
+  Future<void> deleteMemoryEntry(String entryId);
   Future<void> setBattleView(BattleView view);
+  Future<void> applyAnalysisToBattle({
+    required Analysis analysis,
+    required List<BattleCard> cards,
+    String headline = '',
+  });
+
+  void dispose();
 }

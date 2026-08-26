@@ -26,8 +26,8 @@ class Analysis {
     DateTime? createdAt,
     this.tokenCount = 0,
     this.duration,
-  })  : id = id ?? const Uuid().v4(),
-        createdAt = createdAt ?? DateTime.now();
+  }) : id = id ?? const Uuid().v4(),
+       createdAt = createdAt ?? DateTime.now();
 
   String get viewDisplayText {
     switch (view) {
