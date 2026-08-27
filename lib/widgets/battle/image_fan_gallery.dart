@@ -3,7 +3,6 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
-import '../../models/enums.dart';
 import '../../theme/mode_theme.dart';
 
 /// 常驻悬浮的截图卡牌扇，叠在聊天内容上方、日期按钮正下方。
@@ -136,11 +135,7 @@ class ImageFanGalleryState extends State<ImageFanGallery>
     final mid = (count - 1) / 2;
     final denom = math.max(mid, 1.0);
     // 与模式按钮的边框颜色保持一致（未选中态）。
-    final borderColor = switch (mode.view) {
-      BattleView.win => const Color(0xFFBCBCC5),
-      BattleView.right => mode.textMuted,
-      BattleView.love => mode.textMuted,
-    };
+    final borderColor = mode.chipBorder;
 
     return SizedBox(
       width: sContentWidth,

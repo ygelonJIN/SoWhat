@@ -22,6 +22,18 @@ class ModeTheme {
     required this.inputRadius,
     required this.cardRadius,
     required this.chipRadius,
+    required this.cardBackground,
+    required this.cardTitle,
+    required this.cardBody,
+    required this.cardMuted,
+    required this.cardBorder,
+    required this.cardShadowAlpha,
+    required this.chipBackground,
+    required this.chipForeground,
+    required this.chipBorder,
+    required this.actionChipBackground,
+    required this.actionChipForeground,
+    required this.actionChipBorder,
     required this.inputBorderColor,
     this.inputBorderWidth = 0,
     this.fontFamily,
@@ -33,7 +45,7 @@ class ModeTheme {
   /// 模式名：争爱 / 争对错 / 争输赢。
   final String title;
 
-  /// 战场视觉的名字：共育之书 / 法庭之秤 / 胜负之局。
+  /// 战场视觉的名字：共育之树 / 法庭之秤 / 胜负之局。
   final String tagline;
 
   final Color background;
@@ -56,6 +68,28 @@ class ModeTheme {
 
   /// 浮动模式按钮 / 发送按钮的切角。
   final BorderRadius chipRadius;
+
+  /// 分析卡片色组（BattleAnalysisCard 专用）。
+  final Color cardBackground;
+  final Color cardTitle;
+  final Color cardBody;
+  final Color cardMuted;
+  final Color cardBorder;
+
+  /// 分析卡片阴影强度。
+  final double cardShadowAlpha;
+
+  /// 通用胶囊按钮（未选中态）——已含 0.92 背景 / 0.74 前景透明度。
+  final Color chipBackground;
+  final Color chipForeground;
+
+  /// 胶囊按钮边框色（不透明底色，状态透明度由组件叠加）。
+  final Color chipBorder;
+
+  /// 主要操作芯片（发送 / 附着按钮；win 模式为白底反色）。
+  final Color actionChipBackground;
+  final Color actionChipForeground;
+  final Color actionChipBorder;
 
   final Color inputBorderColor;
   final double inputBorderWidth;
@@ -139,11 +173,11 @@ class ModeTheme {
 
 /// 三模式的预置主题。
 abstract final class ModeThemes {
-  /// 为爱：暖纸色 · 圆润 · 楷体 ——「共育之书」。
+  /// 为爱：暖纸色 · 圆润 · 楷体 ——「共育之树」。
   static const love = ModeTheme(
     view: BattleView.love,
     title: '为爱',
-    tagline: '共育之书',
+    tagline: '共育之树',
     background: Color(0xFFFAF3E6),
     surface: Color(0xFFF1F7EC),
     primary: Color(0xFF4F7B49),
@@ -155,6 +189,18 @@ abstract final class ModeThemes {
     inputRadius: BorderRadius.all(Radius.circular(999)),
     cardRadius: BorderRadius.all(Radius.circular(26)),
     chipRadius: BorderRadius.all(Radius.circular(999)),
+    cardBackground: Color(0xFFD4E8CE),
+    cardTitle: Color(0xFF4F7B49),
+    cardBody: Color(0xFF2F3A2A),
+    cardMuted: Color(0xFF5F7057),
+    cardBorder: Color(0x474F7B49),
+    cardShadowAlpha: 0.06,
+    chipBackground: Color(0xEBF1F7EC),
+    chipForeground: Color(0xBD2F3A2A),
+    chipBorder: Color(0xFF6F7D68),
+    actionChipBackground: Color(0xFF4F7B49),
+    actionChipForeground: Color(0xFFFFFFFF),
+    actionChipBorder: Color(0xFF4F7B49),
     inputBorderColor: Colors.transparent,
     inputBorderWidth: 0,
     fontFamily: 'Kaiti SC',
@@ -177,6 +223,18 @@ abstract final class ModeThemes {
     inputRadius: BorderRadius.zero,
     cardRadius: BorderRadius.zero,
     chipRadius: BorderRadius.zero,
+    cardBackground: Color(0xFF2D2A24),
+    cardTitle: Color(0xFFE0AE40),
+    cardBody: Color(0xFFF2E9D6),
+    cardMuted: Color(0xFFB09B74),
+    cardBorder: Color(0x66E0AE40),
+    cardShadowAlpha: 0.06,
+    chipBackground: Color(0xEB2D2A24),
+    chipForeground: Color(0xBDF2E9D6),
+    chipBorder: Color(0xFFB09B74),
+    actionChipBackground: Color(0xFFE0AE40),
+    actionChipForeground: Color(0xFF241C07),
+    actionChipBorder: Color(0xFFE0AE40),
     inputBorderColor: Color(0xFFD8A84E),
     inputBorderWidth: 1,
     fontFamily: 'Songti SC',
@@ -214,6 +272,18 @@ abstract final class ModeThemes {
       topRight: Radius.circular(32),
       bottomRight: Radius.circular(6),
     ),
+    cardBackground: Color(0xFFCFCFD5),
+    cardTitle: Color(0xFF000000),
+    cardBody: Color(0xFF222229),
+    cardMuted: Color(0xFF6A6A75),
+    cardBorder: Color(0xFFB3B3BE),
+    cardShadowAlpha: 0.35,
+    chipBackground: Color(0xFFD6D6DC),
+    chipForeground: Color(0xFF6F6F78),
+    chipBorder: Color(0xFFBCBCC5),
+    actionChipBackground: Color(0xFFFFFFFF),
+    actionChipForeground: Color(0xFF000000),
+    actionChipBorder: Color(0xFFFFFFFF),
     inputBorderColor: Color(0xFF16161A),
     inputBorderWidth: 1.4,
     strongWeight: FontWeight.w900,

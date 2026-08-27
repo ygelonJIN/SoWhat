@@ -1,11 +1,15 @@
+import 'dart:convert';
+
 import '../models/models.dart';
+import 'ai_client.dart';
 import 'prompt_service.dart';
 
 /// 三视角分析服务。
 ///
-/// 当前为占位：未接真实模型时，返回一段带提示的演示分析，并标明这是占位。
-/// 真实模型接入后（V1 通道 A / V2 BYOK），按 [PromptService] 生成系统提示词，
-/// 把对话内容 + 长期记忆一起交给模型。
+/// 已配置 API（BYOK，小米 MiMo）：用 [PromptService] 生成系统提示词（含
+/// JSON 输出契约），直连模型厂商，把返回的 JSON 解析成维度卡片；接口失败
+/// 抛 [AiRequestException]（UI 已统一以 SnackBar 展示错误）。
+/// 未配置：返回占位演示分析，并提示去设置页配置。
 class AnalysisService {
   const AnalysisService();
 
@@ -15,9 +19,28 @@ class AnalysisService {
     required AiChannel channel,
     MemoryProfile? memory,
     String conversation = '',
+    AiConfig? config,
+    List<MessageImage> images = const [],
+    void Function(String message)? onDebug,
   }) async {
     final promptService = const PromptService();
     final effectiveMemory = memory ?? MemoryProfile.empty();
+
+    if (config != null && config.isConfigured) {
+      return _analyzeWithModel(
+        conversationId: conversationId,
+        view: view,
+        channel: channel,
+        memory: effectiveMemory,
+        conversation: conversation,
+        config: config,
+        promptService: promptService,
+        images: images,
+        onDebug: onDebug,
+      );
+    }
+
+    onDebug?.call('未配置 API，使用演示分析…');
     final prompt = promptService.buildSystemPrompt(
       view: view,
       memory: effectiveMemory,
@@ -29,10 +52,110 @@ class AnalysisService {
       view: view,
       channel: channel,
       modelName: '待接入模型',
-      content: '分析服务尚未接入真实模型。点击右上角「复制分析包」，可以把这份提示词贴到免费的 AI 里得到真实分析，再粘贴回来存档。',
+      content: '分析服务尚未接入真实模型。请在设置页「配置 API」填入小米 MiMo 的 API Key。',
       cards: cards,
       tokenCount: prompt.length,
     );
+  }
+
+  Future<Analysis> _analyzeWithModel({
+    required String conversationId,
+    required BattleView view,
+    required AiChannel channel,
+    required MemoryProfile memory,
+    required String conversation,
+    required AiConfig config,
+    required PromptService promptService,
+    required List<MessageImage> images,
+    void Function(String message)? onDebug,
+  }) async {
+    final prompt = promptService.buildSystemPrompt(
+      view: view,
+      memory: memory,
+      conversation: conversation,
+      structured: true,
+    );
+    final user = conversation.trim().isEmpty
+        ? '（本轮对话内容为空，请基于已有长期记忆与图片给出分析。）'
+        : conversation;
+
+    final protocolLabel = config.protocol == AiProtocol.openai
+        ? 'OpenAI 兼容'
+        : 'Anthropic 兼容';
+    onDebug?.call(
+      images.isEmpty
+          ? '正在调用 ${config.effectiveModel}（$protocolLabel）…'
+          : '正在编码 ${images.length} 张图片并调用 ${config.effectiveModel}（$protocolLabel）…',
+    );
+    final raw = await const AiClient().chat(
+      config: config,
+      system: prompt,
+      user: user,
+      images: images,
+    );
+    onDebug?.call('已收到模型响应，正在解析维度卡片…');
+
+    final cards = _parseCards(raw);
+    return Analysis(
+      conversationId: conversationId,
+      view: view,
+      channel: channel,
+      modelName: config.effectiveModel,
+      content: raw,
+      cards: cards,
+      tokenCount: prompt.length,
+    );
+  }
+
+  /// 解析模型返回的结构化 JSON（可能被 ```json 代码块包裹）。
+  List<AnalysisCard> _parseCards(String raw) {
+    final text = _stripFences(raw.trim());
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(text);
+    } catch (_) {
+      throw const AiRequestException('模型返回的不是 JSON（可能被截断），请重试。');
+    }
+    if (decoded is! Map) {
+      throw const AiRequestException('模型返回结构异常，请重试。');
+    }
+    final rawCards = decoded['cards'];
+    if (rawCards is! List || rawCards.isEmpty) {
+      throw const AiRequestException('模型没有返回分析卡片，请重试。');
+    }
+
+    final cards = <AnalysisCard>[];
+    for (final item in rawCards) {
+      if (item is! Map) continue;
+      final title = item['title']?.toString().trim() ?? '';
+      final conclusion = item['conclusion']?.toString().trim() ?? '';
+      if (title.isEmpty || conclusion.isEmpty) continue;
+      final evidence = _nullableText(item['evidence']);
+      final speculation = _nullableText(item['speculation']);
+      cards.add(
+        AnalysisCard(
+          title: title,
+          conclusion: conclusion,
+          evidence: evidence,
+          speculation: speculation,
+        ),
+      );
+    }
+    if (cards.isEmpty) {
+      throw const AiRequestException('模型返回的分析卡片无法解析，请重试。');
+    }
+    return cards;
+  }
+
+  String? _nullableText(dynamic value) {
+    final text = value?.toString().trim() ?? '';
+    return text.isEmpty ? null : text;
+  }
+
+  String _stripFences(String text) {
+    final match =
+        RegExp(r'^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$').firstMatch(text);
+    return match == null ? text : match.group(1)!;
   }
 
   List<AnalysisCard> _demoCards(BattleView view, String conversation) {

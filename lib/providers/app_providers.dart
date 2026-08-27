@@ -3,8 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../repositories/app_repository.dart';
 import '../repositories/memory_app_repository.dart';
+import '../services/ai_client.dart';
 import '../services/analysis_service.dart';
-import '../services/memory_service.dart';
+import '../services/memory_generation_service.dart';
 import '../services/prompt_service.dart';
 
 // 当前仍使用内存仓库，后续切换到本地数据库持久化。
@@ -23,8 +24,9 @@ final analysisServiceProvider = Provider<AnalysisService>((ref) {
   return const AnalysisService();
 });
 
-final memoryServiceProvider = Provider<MemoryService>((ref) {
-  return const MemoryService();
+final memoryGenerationServiceProvider =
+    Provider<MemoryGenerationService>((ref) {
+  return const MemoryGenerationService();
 });
 
 final promptServiceProvider = Provider<PromptService>((ref) {
@@ -51,12 +53,28 @@ final memoryProfileProvider = StreamProvider<MemoryProfile>((ref) {
   return ref.watch(appRepositoryProvider).watchMemory();
 });
 
-final conversationStartedAtProvider = StreamProvider<DateTime>((ref) {
-  return ref.watch(appRepositoryProvider).watchConversationStartedAt();
+/// BYOK 接入配置（设置页「配置 API」写入，供分析 / 记忆生成读取）。
+final aiConfigProvider = StreamProvider<AiConfig>((ref) {
+  return ref.watch(appRepositoryProvider).watchAiConfig();
 });
 
-final battleStateProvider = StreamProvider<BattleState>((ref) {
-  return ref.watch(appRepositoryProvider).watchBattleState();
+/// 当前打开的对话（设置页点击聊天记录 / 新建对话时切换）。
+final selectedConversationIdProvider = StateProvider<String>((ref) {
+  return MemoryAppRepository.currentConversationId;
+});
+
+final conversationStartedAtProvider =
+    StreamProvider.family<DateTime, String>((ref, conversationId) {
+  return ref.watch(appRepositoryProvider).watchConversationStartedAt(
+    conversationId,
+  );
+});
+
+final battleStateProvider = StreamProvider.family<BattleState, String>((
+  ref,
+  conversationId,
+) {
+  return ref.watch(appRepositoryProvider).watchBattleState(conversationId);
 });
 
 // ─── 状态 ──────────────────────────────────────────────────────────────────
@@ -69,10 +87,8 @@ final isAnalyzingProvider = StateProvider<bool>((ref) {
   return false;
 });
 
-final userIdentityProvider = StateProvider<bool>((ref) {
-  // false = 未确认"哪边是我"，true = 已确认
-  return false;
-});
+/// 调试：聊天框实时显示当前正在执行的动作（测试用，后续可整体移除）。
+final debugStatusProvider = StateProvider<String>((ref) => '');
 
 // ─── 操作 ──────────────────────────────────────────────────────────────────
 
@@ -89,7 +105,35 @@ class AppRepositoryActions {
   final AppRepository repository;
   final Ref ref;
 
-  Future<void> setBattleView(BattleView view) => repository.setBattleView(view);
+  Future<void> setBattleView(String conversationId, BattleView view) =>
+      repository.setBattleView(conversationId, view);
+
+  /// 新建一段对话（未命名，界面按创建时间展示日期时间），返回新对话。
+  Future<Case> createConversation() => repository.upsertCase(Case());
+
+  Future<Case> setConversationPinned(String conversationId, bool pinned) =>
+      repository.setCasePinned(conversationId, pinned);
+
+  Future<Case> renameConversation(String conversationId, String title) =>
+      repository.renameCase(conversationId, title);
+
+  /// 保存 BYOK 接入配置。
+  Future<void> saveAiConfig(AiConfig config) => repository.saveAiConfig(config);
+
+  /// 删除对话；[deleteMemory] 为 true 时连同引用该对话的记忆一并删除。
+  Future<void> deleteConversation(
+    String conversationId, {
+    bool deleteMemory = false,
+  }) async {
+    await repository.deleteCase(conversationId);
+    if (deleteMemory) {
+      await repository.deleteMemoryForConversation(conversationId);
+    }
+  }
+
+  /// 把一批分析卡片标记为已被「更新记忆」消化。
+  Future<void> markAnalysesProcessed(List<String> analysisIds) =>
+      repository.markAnalysesProcessed(analysisIds);
 
   Future<void> addMessage({
     required String conversationId,
@@ -127,18 +171,31 @@ class AppRepositoryActions {
     try {
       final view = ref.read(selectedBattleViewProvider);
       final memory = await repository.watchMemory().first;
+      final config = await repository.watchAiConfig().first;
       final conversation = const PromptService().formatConversation(messages);
+      final images = [
+        for (final message in messages)
+          if (message.isImageType && message.assetPath != null)
+            MessageImage(message.assetPath!),
+      ];
 
       final analysisService = ref.read(analysisServiceProvider);
-      final memoryService = ref.read(memoryServiceProvider);
 
       final analysis = await analysisService.analyze(
         conversationId: conversationId,
         view: view,
-        channel: AiChannel.promptExport,
+        channel: config.isConfigured
+            ? AiChannel.byok
+            : AiChannel.promptExport,
         memory: memory,
         conversation: conversation,
+        config: config.isConfigured ? config : null,
+        images: images,
+        onDebug: (message) =>
+            ref.read(debugStatusProvider.notifier).state = message,
       );
+      ref.read(debugStatusProvider.notifier).state =
+          '分析完成：${analysis.cards.length} 张卡片';
 
       await repository.saveAnalysis(analysis);
 
@@ -155,14 +212,6 @@ class AppRepositoryActions {
         cards: cards,
         headline: _headlineFor(view, cards),
       );
-
-      final entries = memoryService.extractEntries(
-        messages: messages,
-        view: view,
-        analysisText: analysis.content,
-      );
-      final updatedMemory = memoryService.mergeEntries(memory, entries);
-      await repository.saveMemory(updatedMemory);
     } finally {
       ref.read(isAnalyzingProvider.notifier).state = false;
     }

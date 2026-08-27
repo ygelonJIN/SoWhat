@@ -15,6 +15,9 @@ class Analysis {
   final int tokenCount;
   final Duration? duration;
 
+  /// 被「更新记忆」消化的时间；为空表示尚未进入记忆档案。
+  final DateTime? memoryProcessedAt;
+
   Analysis({
     String? id,
     required this.conversationId,
@@ -26,6 +29,7 @@ class Analysis {
     DateTime? createdAt,
     this.tokenCount = 0,
     this.duration,
+    this.memoryProcessedAt,
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now();
 

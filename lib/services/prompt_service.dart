@@ -87,11 +87,15 @@ $conversation
   }
 
   /// 生成一份完整提示词（公共铁律 + 指定模式指令）。
+  ///
+  /// [structured] 为 true 时追加 JSON 输出契约（BYOK 内置调用用，
+  /// 让模型直接输出可解析的维度卡片；导出分析包给免费 AI 用保持自由文本）。
   String buildSystemPrompt({
     required BattleView view,
     required MemoryProfile memory,
     required String conversation,
     String? background,
+    bool structured = false,
   }) {
     final law = commonIronLaw(
       memory: memory,
@@ -103,8 +107,24 @@ $conversation
       BattleView.love => loveModeInstruction(),
       BattleView.win => winModeInstruction(),
     };
-    return '$law\n\n$mode';
+    final base = '$law\n\n$mode';
+    if (!structured) return base;
+    return '$base\n\n$_structuredContract';
   }
+
+  static const _structuredContract = '''
+【输出格式】
+只输出一个 JSON 对象，不要任何其他文字，不要 markdown 代码块：
+{
+  "headline": "一行战况小结",
+  "cards": [
+    { "title": "维度名", "conclusion": "结论", "evidence": "证据引用", "speculation": "推测标注" }
+  ]
+}
+要求：
+- cards 覆盖该视角的全部维度（论对错 7 条 / 争爱 8 条 / 争输赢 8 条）。
+- conclusion 一句话写完；evidence 引用对话原文片段；无法对应到证据的判断写进 speculation 并标注「推测」。
+- 严格 JSON，括号闭合，字段用英文双引号。''';
 
   /// 导出分析包（V1 通道 A）：一份可直接复制到免费 AI 的完整提示词。
   PromptPackage buildExportPackage({
@@ -152,7 +172,9 @@ $conversation
       parts.add('关系状态：${memory.relationshipSummary}');
     }
     for (final entry in memory.entries.where((e) => !e.isDeleted)) {
-      final source = entry.source == null ? '' : '（出处：${entry.source}）';
+      final source = entry.sources.isEmpty
+          ? ''
+          : '（出处：${entry.sources.first.happenedAt.month}/${entry.sources.first.happenedAt.day}）';
       parts.add('${_kindLabel(entry.kind)}：${entry.summary}$source');
     }
     if (parts.isEmpty) return '（尚无长期记忆）';
@@ -167,6 +189,18 @@ $conversation
         return '关系状态';
       case MemoryKind.growth:
         return '成长轨迹';
+      case MemoryKind.trigger:
+        return '矛盾触发点';
+      case MemoryKind.commLib:
+        return '有效沟通方式';
+      case MemoryKind.milestone:
+        return '关系里程碑';
+      case MemoryKind.minefield:
+        return '雷区清单';
+      case MemoryKind.openIssue:
+        return '未解决的问题';
+      case MemoryKind.promise:
+        return '承诺跟踪';
     }
   }
 

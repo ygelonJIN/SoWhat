@@ -10,23 +10,19 @@ class MemoryAppRepository implements AppRepository {
   final List<Case> _cases = [];
   final Map<String, List<Message>> _messagesByConversation = {};
   final Map<String, List<Analysis>> _analysesByConversation = {};
+  final Map<String, StreamController<BattleState>> _battleControllers = {};
+  final Map<String, BattleState> _battleStates = {};
   late final StreamController<List<Case>> _caseController =
       StreamController<List<Case>>.broadcast(onListen: _emitCases);
-  late final StreamController<BattleState> _battleController =
-      StreamController<BattleState>.broadcast(onListen: _emitBattle);
   late final StreamController<MemoryProfile> _memoryController =
       StreamController<MemoryProfile>.broadcast(onListen: _emitMemory);
+  late final StreamController<AiConfig> _aiConfigController =
+      StreamController<AiConfig>.broadcast();
   final Map<String, StreamController<List<Message>>> _messageControllers = {};
   final Map<String, StreamController<List<Analysis>>> _analysisControllers = {};
 
-  late final StreamController<DateTime> _conversationStartController =
-      StreamController<DateTime>.broadcast(onListen: _emitConversationStart);
-
-  BattleState _battleState = BattleState.initial();
   MemoryProfile _memory = MemoryProfile.empty();
-
-  /// 本次对话开始的时间（创建对话时记录，之后保持不变）。
-  DateTime _conversationStartedAt = DateTime.now();
+  AiConfig _aiConfig = const AiConfig();
 
   MemoryAppRepository() {
     seedDemoData();
@@ -64,21 +60,35 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
-  Stream<BattleState> watchBattleState() async* {
-    yield _battleState;
-    yield* _battleController.stream;
+  Stream<BattleState> watchBattleState(String conversationId) async* {
+    final controller = _battleControllers.putIfAbsent(
+      conversationId,
+      () => StreamController<BattleState>.broadcast(),
+    );
+    yield _battleStates[conversationId] ?? BattleState.initial();
+    yield* controller.stream;
   }
 
   @override
-  Stream<DateTime> watchConversationStartedAt() async* {
-    yield _conversationStartedAt;
-    yield* _conversationStartController.stream;
+  Stream<DateTime> watchConversationStartedAt(String conversationId) async* {
+    yield* watchCases().map((cases) {
+      for (final caseItem in cases) {
+        if (caseItem.id == conversationId) return caseItem.createdAt;
+      }
+      return DateTime.now();
+    });
   }
 
   @override
   Stream<MemoryProfile> watchMemory() async* {
     yield _memory;
     yield* _memoryController.stream;
+  }
+
+  @override
+  Stream<AiConfig> watchAiConfig() async* {
+    yield _aiConfig;
+    yield* _aiConfigController.stream;
   }
 
   void _emitCases() {
@@ -105,23 +115,21 @@ class MemoryAppRepository implements AppRepository {
     }
   }
 
-  void _emitBattle() {
-    if (!_battleController.isClosed) _battleController.add(_battleState);
+  void _emitBattle(String conversationId) {
+    final controller = _battleControllers[conversationId];
+    if (controller != null && !controller.isClosed) {
+      controller.add(
+        _battleStates[conversationId] ?? BattleState.initial(),
+      );
+    }
   }
 
   void _emitMemory() {
     if (!_memoryController.isClosed) _memoryController.add(_memory);
   }
 
-  void _emitConversationStart() {
-    if (!_conversationStartController.isClosed) {
-      _conversationStartController.add(_conversationStartedAt);
-    }
-  }
-
   void _seedCurrentConversation() {
     final now = DateTime.now();
-    _conversationStartedAt = now.subtract(const Duration(minutes: 40));
     final messages = <Message>[
       Message(
         conversationId: currentConversationId,
@@ -176,7 +184,6 @@ class MemoryAppRepository implements AppRepository {
     _cases.add(
       Case(
         id: currentConversationId,
-        title: '昨晚没回消息',
         createdAt: now.subtract(const Duration(minutes: 40)),
       ),
     );
@@ -184,8 +191,9 @@ class MemoryAppRepository implements AppRepository {
 
   @override
   Future<void> seedDemoData() async {
+    _battleStates[currentConversationId] = BattleState.initial();
     _emitCases();
-    _emitBattle();
+    _emitBattle(currentConversationId);
     _emitMemory();
   }
 
@@ -199,6 +207,32 @@ class MemoryAppRepository implements AppRepository {
     }
     _emitCases();
     return caseItem;
+  }
+
+  @override
+  Future<Case> setCasePinned(String caseId, bool pinned) async {
+    final index = _cases.indexWhere((item) => item.id == caseId);
+    if (index < 0) {
+      throw StateError('未找到对话 $caseId');
+    }
+    final updated = _cases[index].copyWith(
+      pinnedAt: pinned ? DateTime.now() : null,
+    );
+    _cases[index] = updated;
+    _emitCases();
+    return updated;
+  }
+
+  @override
+  Future<Case> renameCase(String caseId, String title) async {
+    final index = _cases.indexWhere((item) => item.id == caseId);
+    if (index < 0) {
+      throw StateError('未找到对话 $caseId');
+    }
+    final updated = _cases[index].copyWith(title: title);
+    _cases[index] = updated;
+    _emitCases();
+    return updated;
   }
 
   @override
@@ -249,23 +283,66 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
-  Future<void> deleteMemoryEntry(String entryId) async {
-    final index = _memory.entries.indexWhere((entry) => entry.id == entryId);
-    if (index < 0) return;
-    final entries = _memory.entries.toList();
-    entries[index] = entries[index].copyWith(isDeleted: true);
-    await saveMemory(_memory.copyWith(entries: entries));
+  Future<void> saveAiConfig(AiConfig config) async {
+    _aiConfig = config;
+    if (!_aiConfigController.isClosed) {
+      _aiConfigController.add(_aiConfig);
+    }
   }
 
   @override
-  Future<void> setBattleView(BattleView view) async {
-    _battleState = _battleState.copyWith(
+  Future<void> deleteMemoryForConversation(String conversationId) async {
+    final remaining = _memory.entries
+        .where((entry) =>
+            !entry.sources.any((s) => s.conversationId == conversationId))
+        .toList();
+    if (remaining.length == _memory.entries.length) return;
+    await saveMemory(_memory.copyWith(entries: remaining));
+  }
+
+  @override
+  Future<void> markAnalysesProcessed(List<String> analysisIds) async {
+    if (analysisIds.isEmpty) return;
+    for (final list in _analysesByConversation.values) {
+      for (var i = 0; i < list.length; i++) {
+        final analysis = list[i];
+        if (analysisIds.contains(analysis.id) &&
+            analysis.memoryProcessedAt == null) {
+          list[i] = _copyAnalysisProcessed(analysis);
+        }
+      }
+    }
+    for (final id in _analysesByConversation.keys.toList()) {
+      _emitAnalyses(id);
+    }
+  }
+
+  Analysis _copyAnalysisProcessed(Analysis analysis) {
+    return Analysis(
+      id: analysis.id,
+      conversationId: analysis.conversationId,
+      view: analysis.view,
+      channel: analysis.channel,
+      modelName: analysis.modelName,
+      content: analysis.content,
+      cards: analysis.cards,
+      createdAt: analysis.createdAt,
+      tokenCount: analysis.tokenCount,
+      duration: analysis.duration,
+      memoryProcessedAt: DateTime.now(),
+    );
+  }
+
+  @override
+  Future<void> setBattleView(String conversationId, BattleView view) async {
+    final current = _battleStates[conversationId] ?? BattleState.initial(view);
+    _battleStates[conversationId] = current.copyWith(
       view: view,
       headline: _headlineFor(view),
       cards: const [],
       updatedAt: DateTime.now(),
     );
-    _emitBattle();
+    _emitBattle(conversationId);
   }
 
   /// 分析完成后更新战场状态（维度卡片 + 战况小结 + 可视化指标）。
@@ -275,13 +352,15 @@ class MemoryAppRepository implements AppRepository {
     required List<BattleCard> cards,
     String headline = '',
   }) async {
-    _battleState = _battleState.copyWith(
+    _battleStates[analysis.conversationId] = BattleState.initial(
+      analysis.view,
+    ).copyWith(
       view: analysis.view,
       headline: headline.isEmpty ? _headlineFor(analysis.view) : headline,
       cards: cards,
       updatedAt: DateTime.now(),
     );
-    _emitBattle();
+    _emitBattle(analysis.conversationId);
   }
 
   String _headlineFor(BattleView view) {
@@ -298,9 +377,11 @@ class MemoryAppRepository implements AppRepository {
   @override
   void dispose() {
     _caseController.close();
-    _battleController.close();
     _memoryController.close();
-    _conversationStartController.close();
+    _aiConfigController.close();
+    for (final controller in _battleControllers.values) {
+      controller.close();
+    }
     for (final controller in _messageControllers.values) {
       controller.close();
     }
