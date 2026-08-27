@@ -1,5 +1,3 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
@@ -32,29 +30,29 @@ class BattleAnalysisCard extends StatelessWidget {
     final radius = mode.cardRadius;
 
     final cardColor = switch (mode.view) {
-      BattleView.win => const Color(0xFF16161A),
+      BattleView.win => const Color(0xFFCFCFD5),
       BattleView.right => const Color(0xFF2D2A24),
-      BattleView.love => const Color(0xFF5B7F50),
+      BattleView.love => const Color(0xFFD4E8CE),
     };
     final titleColor = switch (mode.view) {
-      BattleView.win => const Color(0xFF9C9CA6),
+      BattleView.win => Colors.black,
       BattleView.right => const Color(0xFFE0AE40),
-      BattleView.love => Colors.white,
+      BattleView.love => const Color(0xFF4F7B49),
     };
     final bodyColor = switch (mode.view) {
-      BattleView.win => Colors.white,
+      BattleView.win => const Color(0xFF222229),
       BattleView.right => const Color(0xFFF2E9D6),
-      BattleView.love => Colors.white,
+      BattleView.love => const Color(0xFF2F3A2A),
     };
     final mutedColor = switch (mode.view) {
-      BattleView.win => const Color(0xFF9C9CA6),
+      BattleView.win => const Color(0xFF6A6A75),
       BattleView.right => const Color(0xFFB09B74),
-      BattleView.love => const Color(0xFFD9E8D4),
+      BattleView.love => const Color(0xFF5F7057),
     };
     final borderColor = switch (mode.view) {
-      BattleView.win => Colors.white.withValues(alpha: 0.22),
+      BattleView.win => const Color(0xFFB3B3BE),
       BattleView.right => const Color(0xFFE0AE40).withValues(alpha: 0.4),
-      BattleView.love => Colors.white.withValues(alpha: 0.18),
+      BattleView.love => const Color(0xFF4F7B49).withValues(alpha: 0.28),
     };
 
     return Container(
@@ -215,9 +213,9 @@ class _ScalePan extends StatelessWidget {
       width: 74,
       height: 42,
       decoration: BoxDecoration(
-        color: tint.withOpacity(0.14),
+        color: tint.withValues(alpha: 0.14),
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: tint.withOpacity(0.3)),
+        border: Border.all(color: tint.withValues(alpha: 0.3)),
       ),
       alignment: Alignment.center,
       child: Text(

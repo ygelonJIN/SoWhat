@@ -19,8 +19,14 @@ class MemoryAppRepository implements AppRepository {
   final Map<String, StreamController<List<Message>>> _messageControllers = {};
   final Map<String, StreamController<List<Analysis>>> _analysisControllers = {};
 
+  late final StreamController<DateTime> _conversationStartController =
+      StreamController<DateTime>.broadcast(onListen: _emitConversationStart);
+
   BattleState _battleState = BattleState.initial();
   MemoryProfile _memory = MemoryProfile.empty();
+
+  /// 本次对话开始的时间（创建对话时记录，之后保持不变）。
+  DateTime _conversationStartedAt = DateTime.now();
 
   MemoryAppRepository() {
     seedDemoData();
@@ -64,6 +70,12 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
+  Stream<DateTime> watchConversationStartedAt() async* {
+    yield _conversationStartedAt;
+    yield* _conversationStartController.stream;
+  }
+
+  @override
   Stream<MemoryProfile> watchMemory() async* {
     yield _memory;
     yield* _memoryController.stream;
@@ -101,8 +113,15 @@ class MemoryAppRepository implements AppRepository {
     if (!_memoryController.isClosed) _memoryController.add(_memory);
   }
 
+  void _emitConversationStart() {
+    if (!_conversationStartController.isClosed) {
+      _conversationStartController.add(_conversationStartedAt);
+    }
+  }
+
   void _seedCurrentConversation() {
     final now = DateTime.now();
+    _conversationStartedAt = now.subtract(const Duration(minutes: 40));
     final messages = <Message>[
       Message(
         conversationId: currentConversationId,
@@ -206,6 +225,14 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
+  Future<void> deleteMessage(String conversationId, int sequence) async {
+    final messages = _messagesByConversation[conversationId];
+    if (messages == null) return;
+    messages.removeWhere((message) => message.sequence == sequence);
+    _emitMessages(conversationId);
+  }
+
+  @override
   Future<void> saveAnalysis(Analysis analysis) async {
     final list = _analysesByConversation.putIfAbsent(
       analysis.conversationId,
@@ -273,6 +300,7 @@ class MemoryAppRepository implements AppRepository {
     _caseController.close();
     _battleController.close();
     _memoryController.close();
+    _conversationStartController.close();
     for (final controller in _messageControllers.values) {
       controller.close();
     }

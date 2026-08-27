@@ -51,6 +51,10 @@ final memoryProfileProvider = StreamProvider<MemoryProfile>((ref) {
   return ref.watch(appRepositoryProvider).watchMemory();
 });
 
+final conversationStartedAtProvider = StreamProvider<DateTime>((ref) {
+  return ref.watch(appRepositoryProvider).watchConversationStartedAt();
+});
+
 final battleStateProvider = StreamProvider<BattleState>((ref) {
   return ref.watch(appRepositoryProvider).watchBattleState();
 });
@@ -108,6 +112,11 @@ class AppRepositoryActions {
   }
 
   /// 运行一轮分析（占位实现：基于当前对话 + 记忆 + 视角生成战场卡片）。
+  Future<void> deleteMessage({
+    required String conversationId,
+    required int sequence,
+  }) => repository.deleteMessage(conversationId, sequence);
+
   Future<void> runAnalysis(String conversationId) async {
     if (ref.read(isAnalyzingProvider)) return;
 

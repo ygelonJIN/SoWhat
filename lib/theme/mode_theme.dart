@@ -203,10 +203,10 @@ abstract final class ModeThemes {
       bottomRight: Radius.circular(6),
     ),
     cardRadius: BorderRadius.only(
-      topLeft: Radius.circular(4),
-      bottomLeft: Radius.circular(36),
-      topRight: Radius.circular(36),
-      bottomRight: Radius.circular(4),
+      topLeft: Radius.circular(2),
+      bottomLeft: Radius.circular(48),
+      topRight: Radius.circular(48),
+      bottomRight: Radius.circular(2),
     ),
     chipRadius: BorderRadius.only(
       topLeft: Radius.circular(6),

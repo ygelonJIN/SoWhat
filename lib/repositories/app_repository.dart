@@ -8,11 +8,15 @@ abstract class AppRepository {
   Stream<BattleState> watchBattleState();
   Stream<MemoryProfile> watchMemory();
 
+  /// 当前对话开始的时间（右上角展示，不随当前时刻变动）。
+  Stream<DateTime> watchConversationStartedAt();
+
   Future<void> seedDemoData();
   Future<Case> upsertCase(Case caseItem);
   Future<void> deleteCase(String conversationId);
   Future<int> nextMessageSequence(String conversationId);
   Future<void> addMessage(Message message);
+  Future<void> deleteMessage(String conversationId, int sequence);
   Future<void> saveAnalysis(Analysis analysis);
   Future<void> saveMemory(MemoryProfile memory);
   Future<void> deleteMemoryEntry(String entryId);

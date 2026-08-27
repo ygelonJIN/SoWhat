@@ -9,6 +9,7 @@ import '../repositories/memory_app_repository.dart';
 import '../services/prompt_service.dart';
 import '../theme/mode_theme.dart';
 import '../widgets/battle/battle_canvas.dart';
+import '../widgets/battle/image_fan_gallery.dart';
 
 /// 主聊天界面（产品文档 3.1）。
 ///
@@ -28,9 +29,15 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   final _imagePicker = ImagePicker();
   final _promptService = const PromptService();
 
+  final _fanGalleryKey = GlobalKey<ImageFanGalleryState>();
+  final _inputFocusNode = FocusNode();
+  bool _isFanPeeked = false;
+  bool _keyboardVisible = false;
+
   @override
   void initState() {
     super.initState();
+    _inputFocusNode.addListener(_handleInputFocusChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _runAnalysis();
     });
@@ -38,9 +45,67 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
 
   @override
   void dispose() {
+    _inputFocusNode.removeListener(_handleInputFocusChanged);
+    _inputFocusNode.dispose();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _handleInputFocusChanged() {
+    if (!mounted) return;
+    final visible = _inputFocusNode.hasFocus;
+    if (visible != _keyboardVisible) {
+      setState(() => _keyboardVisible = visible);
+    }
+  }
+
+  void _dismissKeyboardFromCanvas() {
+    if (_keyboardVisible) {
+      FocusScope.of(context).unfocus();
+    }
+  }
+
+  void _onFanPeekChanged(bool peeked) {
+    if (mounted && _isFanPeeked != peeked) {
+      setState(() => _isFanPeeked = peeked);
+    }
+  }
+
+  void _collapseFanOnScroll() {
+    _collapseFan();
+  }
+
+  void _collapseFan() {
+    if (_isFanPeeked) {
+      _fanGalleryKey.currentState?.collapse();
+      setState(() => _isFanPeeked = false);
+    }
+  }
+
+  void _dismissFanAndKeyboard() {
+    FocusScope.of(context).unfocus();
+    _collapseFan();
+  }
+
+  Future<void> _deleteAllScreenshots() async {
+    _collapseFan();
+    try {
+      final messages = await ref
+          .read(appRepositoryProvider)
+          .watchMessages(_conversationId)
+          .first;
+      final imageMessages = messages.where((message) => message.assetPath != null).toList();
+      for (final message in imageMessages) {
+        await ref.read(repositoryActionsProvider).deleteMessage(
+              conversationId: _conversationId,
+              sequence: message.sequence,
+            );
+      }
+      await _runAnalysis();
+    } catch (error) {
+      _showError('删除截图失败，请稍后重试。', error);
+    }
   }
 
   Future<void> _sendMessage() async {
@@ -171,10 +236,16 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
       conversationMessagesProvider(_conversationId),
     );
     final isAnalyzing = ref.watch(isAnalyzingProvider);
-    final identityConfirmed = ref.watch(userIdentityProvider);
+    final conversationStartedAt =
+        ref.watch(conversationStartedAtProvider).valueOrNull ??
+        DateTime.now();
 
     final mode = ModeThemes.of(selectedView);
     final messages = messagesAsync.valueOrNull ?? const [];
+    final screenshotPaths = messages
+        .where((m) => m.isImageType && m.assetPath != null)
+        .map((m) => m.assetPath!)
+        .toList();
 
     return Theme(
       data: mode.themeData,
@@ -187,36 +258,25 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
             children: [
               Positioned.fill(child: Container(color: mode.background)),
               Positioned.fill(
-                child: BattleCanvas(
-                  state: battleAsync.valueOrNull ?? BattleState.initial(selectedView),
-                  messages: messages,
-                  scrollController: _scrollController,
-                ),
-              ),
-              // 顶部渐变遮罩：让设置/日期从页面顶端自然过渡出来。
-              Positioned(
-                top: 0,
-                left: 0,
-                right: 0,
-                height: 150,
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          mode.background.withValues(alpha: 1.0),
-                          mode.background.withValues(alpha: 0.82),
-                          mode.background.withValues(alpha: 0.30),
-                          mode.background.withValues(alpha: 0),
-                        ],
-                        stops: const [0.0, 0.42, 0.78, 1.0],
-                      ),
-                    ),
+                child: GestureDetector(
+                  behavior: HitTestBehavior.translucent,
+                  onTap: _dismissKeyboardFromCanvas,
+                  child: BattleCanvas(
+                    state: battleAsync.valueOrNull ??
+                        BattleState.initial(selectedView),
+                    messages: messages,
+                    scrollController: _scrollController,
+                    onScroll: _collapseFanOnScroll,
                   ),
                 ),
               ),
+              if (_isFanPeeked)
+                Positioned.fill(
+                  child: IgnorePointer(
+                    ignoring: true,
+                    child: const SizedBox.expand(),
+                  ),
+                ),
               Positioned(
                 top: 0,
                 left: 0,
@@ -225,21 +285,40 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                   bottom: false,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(14, 8, 14, 0),
-                    child: _FloatingTopChrome(
-                      mode: mode,
-                      onExportPrompt: _exportPrompt,
-                      onSettings: _showSettingsPlaceholder,
-                      isAnalyzing: isAnalyzing,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _FloatingTopChrome(
+                          mode: mode,
+                          startedAt: conversationStartedAt,
+                          onExportPrompt: _exportPrompt,
+                          onSettings: _showSettingsPlaceholder,
+                          isAnalyzing: isAnalyzing,
+                        ),
+                        if (screenshotPaths.isNotEmpty) ...[
+                          const SizedBox(height: 10),
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: ImageFanGallery(
+                              key: _fanGalleryKey,
+                              paths: screenshotPaths,
+                              mode: mode,
+                              onPeekChanged: _onFanPeekChanged,
+                              onRemove: _deleteAllScreenshots,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
               ),
-              // 底部渐变遮罩：让模式按钮与输入框从聊天内容里自然浮起。
               Positioned(
                 left: 0,
                 right: 0,
                 bottom: 0,
-                height: 240,
+                height: 176,
                 child: IgnorePointer(
                   child: DecoratedBox(
                     decoration: BoxDecoration(
@@ -276,15 +355,13 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                           isAnalyzing: isAnalyzing,
                         ),
                         const SizedBox(height: 10),
-                        if (!identityConfirmed) ...[
-                          _IdentityBanner(onConfirm: _confirmIdentity),
-                          const SizedBox(height: 8),
-                        ],
                         _ChatComposer(
                           mode: mode,
                           controller: _messageController,
+                          focusNode: _inputFocusNode,
                           onSend: _sendMessage,
                           onAttach: _pickImages,
+                          onInputTap: _collapseFan,
                           isAnalyzing: isAnalyzing,
                         ),
                       ],
@@ -308,22 +385,24 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
 class _FloatingTopChrome extends StatelessWidget {
   const _FloatingTopChrome({
     required this.mode,
+    required this.startedAt,
     required this.onExportPrompt,
     required this.onSettings,
     required this.isAnalyzing,
   });
 
   final ModeTheme mode;
+  final DateTime startedAt;
   final VoidCallback onExportPrompt;
   final VoidCallback onSettings;
   final bool isAnalyzing;
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
+    final start = startedAt;
     final date =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}  '
-        '${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}';
+        '${start.year}-${start.month.toString().padLeft(2, '0')}-${start.day.toString().padLeft(2, '0')}  '
+        '${start.hour.toString().padLeft(2, '0')}:${start.minute.toString().padLeft(2, '0')}';
 
     return Row(
       children: [
@@ -378,7 +457,7 @@ class _FloatingModePicker extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
+      mainAxisAlignment: MainAxisAlignment.end,
       children: [
         _FloatModeButton(
           mode: mode,
@@ -426,7 +505,9 @@ class _PillButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final foreground = highlight ? scheme.onPrimary : scheme.onSurface.withValues(alpha: 0.74);
+    final foreground = highlight
+        ? scheme.onPrimary
+        : scheme.onSurface.withValues(alpha: 0.74);
 
     return Material(
       color: highlight ? scheme.primary : scheme.surface.withValues(alpha: 0.92),
@@ -485,30 +566,49 @@ class _FloatModeButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final foreground = selected ? scheme.onPrimary : scheme.onSurface.withValues(alpha: 0.74);
+    final isWinMode = mode.view == BattleView.win;
+    final foreground = selected
+        ? scheme.onPrimary
+        : isWinMode
+            ? const Color(0xFF6F6F78)
+            : scheme.onSurface.withValues(alpha: 0.74);
+    final background = selected
+        ? scheme.primary
+        : isWinMode
+            ? const Color(0xFFD6D6DC)
+            : scheme.surface.withValues(alpha: 0.92);
+    final borderColor = selected
+        ? scheme.primary
+        : isWinMode
+            ? const Color(0xFFBCBCC5)
+            : mode.textMuted;
 
-    return Material(
-      color: selected ? scheme.primary : scheme.surface.withValues(alpha: 0.92),
-      shape: RoundedRectangleBorder(
-        borderRadius: mode.chipRadius,
-        side: BorderSide(
-          color: (selected ? scheme.primary : mode.textMuted).withValues(alpha: 0.55),
-          width: 1,
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeInOutCubic,
+      child: Material(
+        color: background,
+        shape: RoundedRectangleBorder(
+          borderRadius: mode.chipRadius,
+          side: BorderSide(
+            color: borderColor.withValues(alpha: selected ? 0.8 : 0.55),
+            width: 1,
+          ),
         ),
-      ),
-      elevation: selected ? 5 : 2,
-      shadowColor: Colors.black.withValues(alpha: 0.18),
-      child: InkWell(
-        onTap: disabled ? null : onTap,
-        borderRadius: mode.chipRadius,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 14,
-              fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-              color: foreground,
+        elevation: selected ? 5 : 2,
+        shadowColor: Colors.black.withValues(alpha: 0.18),
+        child: InkWell(
+          onTap: disabled ? null : onTap,
+          borderRadius: mode.chipRadius,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                color: foreground,
+              ),
             ),
           ),
         ),
@@ -579,15 +679,19 @@ class _ChatComposer extends StatelessWidget {
   const _ChatComposer({
     required this.mode,
     required this.controller,
+    required this.focusNode,
     required this.onSend,
     required this.onAttach,
+    required this.onInputTap,
     this.isAnalyzing = false,
   });
 
   final ModeTheme mode;
   final TextEditingController controller;
+  final FocusNode focusNode;
   final VoidCallback onSend;
   final VoidCallback onAttach;
+  final VoidCallback onInputTap;
   final bool isAnalyzing;
 
   @override
@@ -595,64 +699,103 @@ class _ChatComposer extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Material(
       color: scheme.surface.withValues(alpha: 0.96),
+        shape: RoundedRectangleBorder(
+          borderRadius: mode.inputRadius,
+          side: BorderSide(
+            color: mode.textMuted.withValues(alpha: 0.5),
+            width: 1,
+          ),
+        ),
+        elevation: 3,
+        shadowColor: Colors.black.withValues(alpha: 0.14),
+        child: Container(
+          decoration: BoxDecoration(
+            borderRadius: mode.inputRadius,
+            border: mode.inputBorderWidth > 0
+                ? Border.all(
+                    color: mode.inputBorderColor,
+                    width: mode.inputBorderWidth,
+                  )
+                : null,
+          ),
+          child: TextField(
+            controller: controller,
+            focusNode: focusNode,
+            minLines: 1,
+            maxLines: 4,
+            style: TextStyle(
+              color: mode.text,
+              fontSize: 16,
+              fontWeight: mode.view == BattleView.win
+                  ? FontWeight.w500
+                  : FontWeight.w400,
+            ),
+            cursorColor: mode.primary,
+            textInputAction: TextInputAction.newline,
+            onTap: onInputTap,
+            decoration: InputDecoration(
+              hintText: '上传截图，或把对话贴进来',
+              hintStyle: TextStyle(color: mode.textMuted, fontSize: 13),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.fromLTRB(18, 13, 8, 13),
+              prefixIcon: Padding(
+                padding: const EdgeInsets.only(left: 8, top: 6, bottom: 6),
+                child: _AttachButton(
+                  mode: mode,
+                  onPressed: isAnalyzing ? null : onAttach,
+                ),
+              ),
+              suffixIcon: Padding(
+                padding: const EdgeInsets.only(right: 8, top: 6, bottom: 6),
+                child: _SendButton(
+                  mode: mode,
+                  onPressed: isAnalyzing ? null : onSend,
+                ),
+              ),
+            ),
+            onSubmitted: (_) {
+              if (!isAnalyzing) onSend();
+            },
+        ),
+      ),
+    );
+  }
+}
+
+class _AttachButton extends StatelessWidget {
+  const _AttachButton({required this.mode, required this.onPressed});
+
+  final ModeTheme mode;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: mode.view == BattleView.win
+          ? Colors.white
+          : onPressed == null
+              ? mode.primary.withValues(alpha: 0.38)
+              : mode.primary,
       shape: RoundedRectangleBorder(
-        borderRadius: mode.inputRadius,
+        borderRadius: mode.chipRadius,
         side: BorderSide(
-          color: mode.textMuted.withValues(alpha: 0.5),
+          color: mode.view == BattleView.win
+              ? Colors.white
+              : mode.primary.withValues(alpha: onPressed == null ? 0.4 : 0.8),
           width: 1,
         ),
       ),
-      elevation: 3,
-      shadowColor: Colors.black.withValues(alpha: 0.14),
-      child: Container(
-        decoration: BoxDecoration(
-          borderRadius: mode.inputRadius,
-          border: mode.inputBorderWidth > 0
-              ? Border.all(
-                  color: mode.inputBorderColor,
-                  width: mode.inputBorderWidth,
-                )
-              : null,
-        ),
-        child: TextField(
-          controller: controller,
-          minLines: 1,
-          maxLines: 4,
-          style: TextStyle(
-            color: mode.text,
-            fontSize: 16,
-            fontWeight: mode.view == BattleView.win
-                ? FontWeight.w500
-                : FontWeight.w400,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: mode.chipRadius,
+        child: SizedBox(
+          width: 40,
+          height: 40,
+          child: Icon(
+            Icons.photo_library_rounded,
+            size: 20,
+            color: mode.view == BattleView.win ? Colors.black : mode.onPrimary,
           ),
-          cursorColor: mode.primary,
-          textInputAction: TextInputAction.newline,
-          decoration: InputDecoration(
-            hintText: '把对话贴进来，或发一张图',
-            hintStyle: TextStyle(color: mode.textMuted, fontSize: 13),
-            border: InputBorder.none,
-            contentPadding: const EdgeInsets.fromLTRB(18, 13, 8, 13),
-            suffixIcon: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  onPressed: isAnalyzing ? null : onAttach,
-                  icon: Icon(Icons.add_rounded, color: mode.primary),
-                  tooltip: '上传截图',
-                ),
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: _SendButton(
-                    mode: mode,
-                    onPressed: isAnalyzing ? null : onSend,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          onSubmitted: (_) {
-            if (!isAnalyzing) onSend();
-          },
         ),
       ),
     );
@@ -668,13 +811,17 @@ class _SendButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: onPressed == null
-          ? mode.primary.withValues(alpha: 0.38)
-          : mode.primary,
+      color: mode.view == BattleView.win
+          ? Colors.white
+          : onPressed == null
+              ? mode.primary.withValues(alpha: 0.38)
+              : mode.primary,
       shape: RoundedRectangleBorder(
         borderRadius: mode.chipRadius,
         side: BorderSide(
-          color: mode.primary.withValues(alpha: onPressed == null ? 0.4 : 0.8),
+          color: mode.view == BattleView.win
+              ? Colors.white
+              : mode.primary.withValues(alpha: onPressed == null ? 0.4 : 0.8),
           width: 1,
         ),
       ),
@@ -687,7 +834,7 @@ class _SendButton extends StatelessWidget {
           child: Icon(
             Icons.arrow_upward_rounded,
             size: 20,
-            color: mode.onPrimary,
+            color: mode.view == BattleView.win ? Colors.black : mode.onPrimary,
           ),
         ),
       ),
