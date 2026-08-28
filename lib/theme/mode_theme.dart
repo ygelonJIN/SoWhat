@@ -4,8 +4,9 @@ import '../models/models.dart';
 
 /// 单个模式的完整视觉体系。
 ///
-/// 三个模式拥有三套完全独立的 UI：背景、卡片圆角、输入框形状、按钮切角、
-/// 字体、消息气泡、边框全部不同（对应产品文档第 11 章「UI 风格」待定项）。
+/// 三模式共用同一套「令牌 → 用法」逻辑（背景 / 表面 / 卡片 / 输入框 / 按钮 /
+/// 文字的可读性规则完全一致，任何页面在三模式下都可读），只保留各自的配色
+/// 个性与形状特征：为爱=圆润暖绿、论对错=方正暗金、比输赢=斜切黑白。
 class ModeTheme {
   const ModeTheme({
     required this.view,
@@ -37,6 +38,7 @@ class ModeTheme {
     required this.inputBorderColor,
     this.inputBorderWidth = 0,
     this.fontFamily,
+    this.fontFamilyFallback = const <String>[],
     this.strongWeight = FontWeight.w800,
   });
 
@@ -94,8 +96,14 @@ class ModeTheme {
   final Color inputBorderColor;
   final double inputBorderWidth;
 
-  /// 可选字体（iOS 内置字体，Android 自动回退系统字体）。
+  /// 各模式专属中文字体（随 App 打包的开源字体，iOS/Android 均可渲染中文）。
+  ///
+  /// 全局生效：`themeData.fontFamily` 驱动所有文字（含空白态、输入框、提示语）。
+  /// `fontFamilyFallback` 供主字体缺失的字形回退到系统字体，避免缺字。
   final String? fontFamily;
+
+  /// 主字体不可用时的回退字体族（按优先级）。
+  final List<String> fontFamilyFallback;
   final FontWeight strongWeight;
 
   bool get isDark =>
@@ -103,22 +111,23 @@ class ModeTheme {
 
   ThemeData get themeData {
     final brightness = isDark ? Brightness.dark : Brightness.light;
-    final scheme = ColorScheme.fromSeed(
-      seedColor: primary,
-      brightness: brightness,
-    ).copyWith(
-      primary: primary,
-      onPrimary: onPrimary,
-      surface: surface,
-      onSurface: text,
-      onSurfaceVariant: textMuted,
-      primaryContainer: mineBubble,
-      onPrimaryContainer: mineText,
-      secondaryContainer: mineBubble,
-      onSecondaryContainer: mineText,
-      outline: textMuted.withValues(alpha: 0.5),
-      outlineVariant: textMuted.withValues(alpha: 0.25),
-    );
+    final scheme =
+        ColorScheme.fromSeed(
+          seedColor: primary,
+          brightness: brightness,
+        ).copyWith(
+          primary: primary,
+          onPrimary: onPrimary,
+          surface: surface,
+          onSurface: text,
+          onSurfaceVariant: textMuted,
+          primaryContainer: mineBubble,
+          onPrimaryContainer: mineText,
+          secondaryContainer: mineBubble,
+          onSecondaryContainer: mineText,
+          outline: textMuted.withValues(alpha: 0.5),
+          outlineVariant: textMuted.withValues(alpha: 0.25),
+        );
 
     final base = ThemeData(
       useMaterial3: true,
@@ -126,6 +135,7 @@ class ModeTheme {
       brightness: brightness,
       scaffoldBackgroundColor: background,
       fontFamily: fontFamily,
+      fontFamilyFallback: fontFamilyFallback,
     );
 
     return base.copyWith(
@@ -136,7 +146,7 @@ class ModeTheme {
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: surface,
+        fillColor: chipBackground,
         hintStyle: TextStyle(color: textMuted),
         border: OutlineInputBorder(
           borderRadius: inputRadius,
@@ -173,7 +183,7 @@ class ModeTheme {
 
 /// 三模式的预置主题。
 abstract final class ModeThemes {
-  /// 为爱：暖纸色 · 圆润 · 楷体 ——「共育之树」。
+  /// 为爱：暖纸色 · 圆润 · 楷体（霞鹜文楷）——「共育之树」。
   static const love = ModeTheme(
     view: BattleView.love,
     title: '为爱',
@@ -189,12 +199,12 @@ abstract final class ModeThemes {
     inputRadius: BorderRadius.all(Radius.circular(999)),
     cardRadius: BorderRadius.all(Radius.circular(26)),
     chipRadius: BorderRadius.all(Radius.circular(999)),
-    cardBackground: Color(0xFFD4E8CE),
+    cardBackground: Color(0xFFF1F7EC),
     cardTitle: Color(0xFF4F7B49),
     cardBody: Color(0xFF2F3A2A),
     cardMuted: Color(0xFF5F7057),
-    cardBorder: Color(0x474F7B49),
-    cardShadowAlpha: 0.06,
+    cardBorder: Color(0x5E4F7B49),
+    cardShadowAlpha: 0.10,
     chipBackground: Color(0xEBF1F7EC),
     chipForeground: Color(0xBD2F3A2A),
     chipBorder: Color(0xFF6F7D68),
@@ -203,11 +213,11 @@ abstract final class ModeThemes {
     actionChipBorder: Color(0xFF4F7B49),
     inputBorderColor: Colors.transparent,
     inputBorderWidth: 0,
-    fontFamily: 'Kaiti SC',
+    fontFamily: 'LXGW WenKai',
     strongWeight: FontWeight.w700,
   );
 
-  /// 论对错：墨色 · 方正 · 宋体 · 金线 ——「法庭之秤」。
+  /// 论对错：墨色 · 方正 · 宋体（思源宋体）· 金线 ——「法庭之秤」。
   static const right = ModeTheme(
     view: BattleView.right,
     title: '论对错',
@@ -237,23 +247,26 @@ abstract final class ModeThemes {
     actionChipBorder: Color(0xFFE0AE40),
     inputBorderColor: Color(0xFFD8A84E),
     inputBorderWidth: 1,
-    fontFamily: 'Songti SC',
+    fontFamily: 'Noto Serif SC',
     strongWeight: FontWeight.w600,
   );
 
-  /// 比输赢：黑白对决 · 斜切 · 重磅 ——「胜负之局」。
+  /// 比输赢：黑白对决 · 斜切 · 重磅黑体（思源黑体）——「胜负之局」（浅色基底）。
+  ///
+  /// 统一为浅底深字（与论对错的深底浅字互为反相）：背景浅灰、卡片与面板
+  /// 用白/浅灰，主色与发送按钮保持黑色，保留「黑白对决」的个性。
   static const win = ModeTheme(
     view: BattleView.win,
     title: '比输赢',
     tagline: '胜负之局',
     background: Color(0xFFF1F1F4),
-    surface: Color(0xFF16161A),
+    surface: Color(0xFFFFFFFF),
     primary: Color(0xFF16161A),
     onPrimary: Colors.white,
-    mineBubble: Color(0xFF6D6D75),
+    mineBubble: Color(0xFF16161A),
     mineText: Colors.white,
-    text: Colors.white,
-    textMuted: Color(0xFFC7C7CF),
+    text: Color(0xFF1C1C24),
+    textMuted: Color(0xFF6E6E78),
     inputRadius: BorderRadius.only(
       topLeft: Radius.circular(6),
       bottomLeft: Radius.circular(36),
@@ -272,20 +285,21 @@ abstract final class ModeThemes {
       topRight: Radius.circular(32),
       bottomRight: Radius.circular(6),
     ),
-    cardBackground: Color(0xFFCFCFD5),
-    cardTitle: Color(0xFF000000),
-    cardBody: Color(0xFF222229),
-    cardMuted: Color(0xFF6A6A75),
-    cardBorder: Color(0xFFB3B3BE),
-    cardShadowAlpha: 0.35,
-    chipBackground: Color(0xFFD6D6DC),
-    chipForeground: Color(0xFF6F6F78),
-    chipBorder: Color(0xFFBCBCC5),
-    actionChipBackground: Color(0xFFFFFFFF),
-    actionChipForeground: Color(0xFF000000),
-    actionChipBorder: Color(0xFFFFFFFF),
-    inputBorderColor: Color(0xFF16161A),
-    inputBorderWidth: 1.4,
+    cardBackground: Color(0xFFFFFFFF),
+    cardTitle: Color(0xFF16161A),
+    cardBody: Color(0xFF2A2A34),
+    cardMuted: Color(0xFF6E6E78),
+    cardBorder: Color(0xFFDCDCE4),
+    cardShadowAlpha: 0.10,
+    chipBackground: Color(0xFFE8E8EE),
+    chipForeground: Color(0xFF33333D),
+    chipBorder: Color(0xFFC4C4CE),
+    actionChipBackground: Color(0xFF16161A),
+    actionChipForeground: Color(0xFFFFFFFF),
+    actionChipBorder: Color(0xFF16161A),
+    inputBorderColor: Colors.transparent,
+    inputBorderWidth: 0,
+    fontFamily: 'Noto Sans SC',
     strongWeight: FontWeight.w900,
   );
 

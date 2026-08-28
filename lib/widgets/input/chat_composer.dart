@@ -5,9 +5,11 @@ import '../../theme/mode_theme.dart';
 
 /// 全屏聊天式的输入条：文字输入 + 截图附着 + 发送。
 ///
-/// 样式由 `ModeTheme` 驱动（圆角、边框、主色、字体）。分析过程中仍可切换
-/// 视角和继续暂存图片；`pendingCount > 0` 表示有暂存图片待发送：附着
-/// 按钮显示数量角标，输入框提示语切换为「点发送一起发出」。
+/// 样式与右上角日期按钮（PillButton）同款：`chipBackground` 底色 +
+/// `chipBorder` 描边 + `inputRadius` 圆角，三模式共用同一套逻辑；论对错的
+/// 金线由 `inputBorderColor` 额外叠加。分析过程中仍可切换视角和继续暂存
+/// 图片；`pendingCount > 0` 表示有暂存图片待发送：附着按钮显示数量角标，
+/// 输入框提示语切换为「点发送一起发出」。
 class ChatComposer extends StatelessWidget {
   const ChatComposer({
     super.key,
@@ -36,15 +38,15 @@ class ChatComposer extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasPending = pendingCount > 0;
     return Material(
-      color: mode.surface.withValues(alpha: 0.96),
+      color: mode.chipBackground,
       shape: RoundedRectangleBorder(
         borderRadius: mode.inputRadius,
         side: BorderSide(
-          color: mode.textMuted.withValues(alpha: 0.5),
+          color: mode.chipBorder.withValues(alpha: 0.7),
           width: 1,
         ),
       ),
-      elevation: 3,
+      elevation: 2,
       shadowColor: Colors.black.withValues(alpha: 0.14),
       child: Container(
         decoration: BoxDecoration(
@@ -65,14 +67,16 @@ class ChatComposer extends StatelessWidget {
             color: mode.text,
             fontSize: 16,
             fontWeight: mode.view == BattleView.win
-                ? FontWeight.w500
+                ? FontWeight.w600
                 : FontWeight.w400,
           ),
           cursorColor: mode.primary,
           textInputAction: TextInputAction.newline,
           onTap: onInputTap,
           decoration: InputDecoration(
-            hintText: hasPending ? '已选 $pendingCount 张图片，点发送一起发出' : '上传截图，或把对话贴进来',
+            hintText: hasPending
+                ? '已选 $pendingCount 张图片，点发送一起发出'
+                : '上传截图，或把对话贴进来',
             hintStyle: TextStyle(
               color: mode.textMuted,
               fontSize: hasPending ? 12.5 : 13,
@@ -146,11 +150,7 @@ class _ActionChipButton extends StatelessWidget {
             child: SizedBox(
               width: 40,
               height: 40,
-              child: Icon(
-                icon,
-                size: 20,
-                color: mode.actionChipForeground,
-              ),
+              child: Icon(icon, size: 20, color: mode.actionChipForeground),
             ),
           ),
         ),

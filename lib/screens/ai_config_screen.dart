@@ -5,6 +5,7 @@ import '../models/models.dart';
 import '../providers/app_providers.dart';
 import '../services/ai_client.dart';
 import '../theme/mode_theme.dart';
+import '../widgets/buttons/pill_button.dart';
 
 /// 各模式的危险色（与设置页一致：删除、危险操作）。
 Color _modeDanger(ModeTheme mode) {
@@ -85,16 +86,18 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
   /// 切换协议：若接口地址还是上一个协议的默认地址（或为空），跟随换成新默认。
   void _selectProtocol(AiProtocol next) {
     if (next == _protocol) return;
-    final previousDefault =
-        AiConfig(provider: AiProvider.xiaomi, protocol: _protocol)
-            .defaultBaseUrl;
+    final previousDefault = AiConfig(
+      provider: AiProvider.xiaomi,
+      protocol: _protocol,
+    ).defaultBaseUrl;
     final current = _baseUrlController.text.trim();
     setState(() {
       _protocol = next;
       if (current.isEmpty || current == previousDefault) {
-        _baseUrlController.text =
-            AiConfig(provider: AiProvider.xiaomi, protocol: next)
-                .defaultBaseUrl;
+        _baseUrlController.text = AiConfig(
+          provider: AiProvider.xiaomi,
+          protocol: next,
+        ).defaultBaseUrl;
       }
     });
   }
@@ -162,17 +165,23 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
     final draft = _buildConfig();
     final defaultUrl = draft.defaultBaseUrl;
 
-    return Scaffold(
-      backgroundColor: mode.background,
-      body: Stack(
-        children: [
+    return Theme(
+      data: mode.themeData,
+      child: Scaffold(
+        backgroundColor: mode.background,
+        body: Stack(
+          children: [
           Positioned.fill(
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 130, 16, 150),
               children: [
                 _ProviderCard(mode: mode),
                 const SizedBox(height: 18),
-                _SectionLabel(mode: mode, icon: Icons.sync_alt_rounded, text: '兼容协议'),
+                _SectionLabel(
+                  mode: mode,
+                  icon: Icons.sync_alt_outlined,
+                  text: '兼容协议',
+                ),
                 const SizedBox(height: 8),
                 _ProtocolSelector(
                   mode: mode,
@@ -180,7 +189,11 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
                   onSelect: _selectProtocol,
                 ),
                 const SizedBox(height: 18),
-                _SectionLabel(mode: mode, icon: Icons.key_rounded, text: 'API Key'),
+                _SectionLabel(
+                  mode: mode,
+                  icon: Icons.key_outlined,
+                  text: 'API Key',
+                ),
                 const SizedBox(height: 8),
                 _ConfigField(
                   mode: mode,
@@ -191,7 +204,11 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
                       setState(() => _obscureKey = !_obscureKey),
                 ),
                 const SizedBox(height: 18),
-                _SectionLabel(mode: mode, icon: Icons.auto_awesome_rounded, text: '模型'),
+                _SectionLabel(
+                  mode: mode,
+                  icon: Icons.auto_awesome_outlined,
+                  text: '模型',
+                ),
                 const SizedBox(height: 8),
                 _ConfigField(
                   mode: mode,
@@ -199,7 +216,11 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
                   hint: '留空使用默认 mimo-v2.5',
                 ),
                 const SizedBox(height: 18),
-                _SectionLabel(mode: mode, icon: Icons.link_rounded, text: '接口地址'),
+                _SectionLabel(
+                  mode: mode,
+                  icon: Icons.link_outlined,
+                  text: '接口地址',
+                ),
                 const SizedBox(height: 8),
                 _ConfigField(
                   mode: mode,
@@ -284,15 +305,17 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
             child: SafeArea(
               bottom: false,
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(4, 6, 16, 6),
+                padding: const EdgeInsets.fromLTRB(14, 6, 16, 6),
                 child: Row(
                   children: [
-                    IconButton(
-                      tooltip: '返回',
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: Icon(Icons.arrow_back_rounded, color: mode.text),
+                    PillButton(
+                      mode: mode,
+                      icon: Icons.arrow_back_rounded,
+                      label: '',
+                      highlight: true,
+                      onTap: () => Navigator.of(context).pop(),
                     ),
-                    const SizedBox(width: 2),
+                    const SizedBox(width: 10),
                     Text(
                       '配置 AI 接口',
                       style: TextStyle(
@@ -310,7 +333,8 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 }
 
@@ -373,7 +397,11 @@ class _ProviderCard extends StatelessWidget {
               color: mode.primary.withValues(alpha: 0.14),
               borderRadius: BorderRadius.circular(11),
             ),
-            child: Icon(Icons.auto_awesome_rounded, size: 19, color: mode.primary),
+            child: Icon(
+              Icons.auto_awesome_rounded,
+              size: 19,
+              color: mode.primary,
+            ),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -438,8 +466,8 @@ class _ProtocolSelector extends StatelessWidget {
   final ValueChanged<AiProtocol> onSelect;
 
   static const _options = [
-    (AiProtocol.openai, 'OpenAI 兼容', Icons.hexagon_outlined),
-    (AiProtocol.anthropic, 'Anthropic 兼容', Icons.auto_awesome_outlined),
+    (AiProtocol.openai, 'OpenAI 兼容', Icons.hexagon_rounded),
+    (AiProtocol.anthropic, 'Anthropic 兼容', Icons.auto_awesome_rounded),
   ];
 
   @override
@@ -519,7 +547,11 @@ class _ProtocolOption extends StatelessWidget {
 
 /// 区块小标题（协议 / API Key / 模型 / 接口地址）。
 class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.mode, required this.icon, required this.text});
+  const _SectionLabel({
+    required this.mode,
+    required this.icon,
+    required this.text,
+  });
 
   final ModeTheme mode;
   final IconData icon;
@@ -565,24 +597,20 @@ class _ConfigField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isWin = mode.view == BattleView.win;
-    final inputText = isWin ? mode.text : mode.cardBody;
-    final inputMuted = isWin ? mode.textMuted : mode.cardMuted;
-
     return Container(
       decoration: BoxDecoration(
-        color: mode.surface,
+        color: mode.chipBackground,
         borderRadius: mode.inputRadius,
-        border: Border.all(color: mode.cardBorder),
+        border: Border.all(color: mode.chipBorder),
       ),
       child: TextField(
         controller: controller,
         obscureText: obscure ?? false,
-        style: TextStyle(color: inputText, fontSize: 13.5),
-        cursorColor: isWin ? mode.text : mode.primary,
+        style: TextStyle(color: mode.text, fontSize: 13.5),
+        cursorColor: mode.primary,
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: TextStyle(color: inputMuted, fontSize: 12),
+          hintStyle: TextStyle(color: mode.textMuted, fontSize: 12),
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(
             horizontal: 14,
@@ -593,10 +621,10 @@ class _ConfigField extends StatelessWidget {
                   tooltip: obscure! ? '显示' : '隐藏',
                   icon: Icon(
                     obscure!
-                        ? Icons.visibility_outlined
-                        : Icons.visibility_off_outlined,
+                        ? Icons.visibility_rounded
+                        : Icons.visibility_off_rounded,
                     size: 18,
-                    color: inputMuted,
+                    color: mode.textMuted,
                   ),
                   onPressed: onToggleObscure,
                 )
@@ -710,7 +738,11 @@ class _SaveButton extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(Icons.check_rounded, size: 18, color: mode.actionChipForeground),
+              Icon(
+                Icons.check_rounded,
+                size: 18,
+                color: mode.actionChipForeground,
+              ),
               const SizedBox(width: 7),
               Text(
                 '保存',

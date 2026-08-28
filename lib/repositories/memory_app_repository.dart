@@ -5,8 +5,6 @@ import 'app_repository.dart';
 
 /// 内存版仓库：用于当前可运行原型，后续替换为 drift + SQLCipher。
 class MemoryAppRepository implements AppRepository {
-  static const currentConversationId = 'current-conversation';
-
   final List<Case> _cases = [];
   final Map<String, List<Message>> _messagesByConversation = {};
   final Map<String, List<Analysis>> _analysesByConversation = {};
@@ -27,10 +25,7 @@ class MemoryAppRepository implements AppRepository {
   final StreamController<List<Asset>> _assetController =
       StreamController<List<Asset>>.broadcast();
 
-  MemoryAppRepository() {
-    seedDemoData();
-    _seedCurrentConversation();
-  }
+  MemoryAppRepository();
 
   @override
   Stream<List<Case>> watchCases() async* {
@@ -63,7 +58,10 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
-  Stream<BattleState> watchBattleState(String conversationId, BattleView view) async* {
+  Stream<BattleState> watchBattleState(
+    String conversationId,
+    BattleView view,
+  ) async* {
     final controller = _battleControllers.putIfAbsent(
       conversationId,
       () => StreamController<BattleState>.broadcast(),
@@ -105,7 +103,9 @@ class MemoryAppRepository implements AppRepository {
 
   @override
   Future<void> saveAsset(Asset asset) async {
-    final index = _assets.indexWhere((item) => item.id == asset.id || item.path == asset.path);
+    final index = _assets.indexWhere(
+      (item) => item.id == asset.id || item.path == asset.path,
+    );
     if (index >= 0) {
       _assets[index] = asset;
     } else {
@@ -161,84 +161,12 @@ class MemoryAppRepository implements AppRepository {
   void _emitBattle(String conversationId) {
     final controller = _battleControllers[conversationId];
     if (controller != null && !controller.isClosed) {
-      controller.add(
-        _battleStates[conversationId] ?? BattleState.initial(),
-      );
+      controller.add(_battleStates[conversationId] ?? BattleState.initial());
     }
   }
 
   void _emitMemory() {
     if (!_memoryController.isClosed) _memoryController.add(_memory);
-  }
-
-  void _seedCurrentConversation() {
-    final now = DateTime.now();
-    final messages = <Message>[
-      Message(
-        conversationId: currentConversationId,
-        sequence: 1,
-        createdAt: now.subtract(const Duration(minutes: 40)),
-        party: Party.b,
-        type: MessageType.text,
-        content: '你昨天为什么又不回我消息？我等了你一晚上。',
-      ),
-      Message(
-        conversationId: currentConversationId,
-        sequence: 2,
-        createdAt: now.subtract(const Duration(minutes: 38)),
-        party: Party.a,
-        type: MessageType.text,
-        content: '我昨天加班到很晚，手机没电了，真的不是故意不回。',
-      ),
-      Message(
-        conversationId: currentConversationId,
-        sequence: 3,
-        createdAt: now.subtract(const Duration(minutes: 36)),
-        party: Party.b,
-        type: MessageType.text,
-        content: '你每次都这么说。上次出差失联两天，这次又是手机没电。',
-      ),
-      Message(
-        conversationId: currentConversationId,
-        sequence: 4,
-        createdAt: now.subtract(const Duration(minutes: 34)),
-        party: Party.a,
-        type: MessageType.text,
-        content: '上次出差是真的在飞机上，这次真的是没电。你要我怎么证明？',
-      ),
-      Message(
-        conversationId: currentConversationId,
-        sequence: 5,
-        createdAt: now.subtract(const Duration(minutes: 32)),
-        party: Party.b,
-        type: MessageType.text,
-        content: '我不是要你证明，我只是希望你在乎我的感受。等一晚上的感觉很难受。',
-      ),
-      Message(
-        conversationId: currentConversationId,
-        sequence: 6,
-        createdAt: now.subtract(const Duration(minutes: 30)),
-        party: Party.a,
-        type: MessageType.text,
-        content: '我知道了……对不起，以后加班前我先跟你说一声。',
-      ),
-    ];
-    _messagesByConversation[currentConversationId] = messages;
-    _cases.add(
-      Case(
-        id: currentConversationId,
-        createdAt: now.subtract(const Duration(minutes: 40)),
-        lastView: BattleView.love,
-      ),
-    );
-  }
-
-  @override
-  Future<void> seedDemoData() async {
-    _battleStates[currentConversationId] = BattleState.initial();
-    _emitCases();
-    _emitBattle(currentConversationId);
-    _emitMemory();
   }
 
   @override
@@ -281,7 +209,8 @@ class MemoryAppRepository implements AppRepository {
 
   @override
   Future<void> deleteEmptyConversation(String conversationId) async {
-    final messages = _messagesByConversation[conversationId] ?? const <Message>[];
+    final messages =
+        _messagesByConversation[conversationId] ?? const <Message>[];
     if (messages.isEmpty) {
       _cases.removeWhere((item) => item.id == conversationId);
       _messagesByConversation.remove(conversationId);
@@ -292,7 +221,8 @@ class MemoryAppRepository implements AppRepository {
 
   @override
   Future<bool> cleanupEmptyConversation(String conversationId) async {
-    final messages = _messagesByConversation[conversationId] ?? const <Message>[];
+    final messages =
+        _messagesByConversation[conversationId] ?? const <Message>[];
     if (messages.isEmpty) {
       await deleteEmptyConversation(conversationId);
       return false;
@@ -356,17 +286,45 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
+  Future<void> wipeUserData() async {
+    _cases.clear();
+    _messagesByConversation.clear();
+    _analysesByConversation.clear();
+    _battleStates.clear();
+    _memory = MemoryProfile.empty();
+    _assets.clear();
+    for (final controller in _messageControllers.values.toList()) {
+      controller.add(const []);
+    }
+    for (final controller in _analysisControllers.values.toList()) {
+      controller.add(const []);
+    }
+    for (final controller in _battleControllers.values.toList()) {
+      controller.add(BattleState.initial(BattleView.love));
+    }
+    _emitCases();
+    _emitMemory();
+    if (!_assetController.isClosed) {
+      _assetController.add(const []);
+    }
+  }
+
+  @override
   Future<void> deleteMemoryForConversation(String conversationId) async {
     final remaining = _memory.entries
-        .where((entry) =>
-            !entry.sources.any((s) => s.conversationId == conversationId))
+        .where(
+          (entry) =>
+              !entry.sources.any((s) => s.conversationId == conversationId),
+        )
         .toList();
     if (remaining.length == _memory.entries.length) return;
     await saveMemory(_memory.copyWith(entries: remaining));
   }
 
   @override
-  Future<void> finalizeConversationsForMemory(List<String> conversationIds) async {
+  Future<void> finalizeConversationsForMemory(
+    List<String> conversationIds,
+  ) async {
     for (final convId in conversationIds) {
       final index = _cases.indexWhere((item) => item.id == convId);
       if (index < 0) continue;
@@ -438,18 +396,17 @@ class MemoryAppRepository implements AppRepository {
     DateTime? thinkingFinishedAt,
     bool thinkingActive = false,
   }) async {
-    _battleStates[analysis.conversationId] = BattleState.initial(
-      analysis.view,
-    ).copyWith(
-      view: analysis.view,
-      headline: headline.isEmpty ? _headlineFor(analysis.view) : headline,
-      cards: cards,
-      updatedAt: DateTime.now(),
-      thinkingContent: thinkingContent,
-      thinkingStartedAt: thinkingStartedAt,
-      thinkingFinishedAt: thinkingFinishedAt,
-      thinkingActive: thinkingActive,
-    );
+    _battleStates[analysis.conversationId] = BattleState.initial(analysis.view)
+        .copyWith(
+          view: analysis.view,
+          headline: headline.isEmpty ? _headlineFor(analysis.view) : headline,
+          cards: cards,
+          updatedAt: DateTime.now(),
+          thinkingContent: thinkingContent,
+          thinkingStartedAt: thinkingStartedAt,
+          thinkingFinishedAt: thinkingFinishedAt,
+          thinkingActive: thinkingActive,
+        );
     _emitBattle(analysis.conversationId);
   }
 

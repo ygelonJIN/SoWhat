@@ -39,11 +39,13 @@ class AiClient {
     required String system,
     required String user,
     List<MessageImage> images = const [],
+    int maxTokens = 4096,
   }) async {
     final http = HttpClient()..connectionTimeout = _connectTimeout;
     var payloadBytes = 0;
     try {
-      final request = await _buildRequest(config, system, user, images);
+      final request = await _buildRequest(config, system, user, images,
+          maxTokens: maxTokens);
       final httpRequest = await http.postUrl(request.uri);
       httpRequest.headers.contentType = ContentType.json;
       request.headers.forEach(httpRequest.headers.set);
@@ -91,6 +93,7 @@ class AiClient {
     required String system,
     required String user,
     List<MessageImage> images = const [],
+    int maxTokens = 4096,
     void Function(String deltaThinking)? onThinking,
     void Function(String deltaContent)? onContent,
   }) async {
@@ -100,6 +103,7 @@ class AiClient {
         system: system,
         user: user,
         images: images,
+        maxTokens: maxTokens,
         onThinking: onThinking,
         onContent: onContent,
       );
@@ -110,6 +114,7 @@ class AiClient {
         system: system,
         user: user,
         images: images,
+        maxTokens: maxTokens,
         onThinking: onThinking,
         onContent: onContent,
         payloadBytes: error.payloadBytes,
@@ -133,6 +138,7 @@ class AiClient {
     required String system,
     required String user,
     required List<MessageImage> images,
+    int maxTokens = 4096,
     void Function(String deltaThinking)? onThinking,
     void Function(String deltaContent)? onContent,
   }) async {
@@ -145,6 +151,7 @@ class AiClient {
         user,
         images,
         stream: true,
+        maxTokens: maxTokens,
       );
       final httpRequest = await http.postUrl(request.uri);
       httpRequest.headers.contentType = ContentType.json;
@@ -260,6 +267,7 @@ class AiClient {
     required String system,
     required String user,
     required List<MessageImage> images,
+    int maxTokens = 4096,
     void Function(String deltaThinking)? onThinking,
     void Function(String deltaContent)? onContent,
     int payloadBytes = 0,
@@ -270,6 +278,7 @@ class AiClient {
         system: system,
         user: user,
         images: images,
+        maxTokens: maxTokens,
       );
       final thinking = _extractThinking(config.protocol, text);
       if (thinking != null && thinking.isNotEmpty) onThinking?.call(thinking);
@@ -288,16 +297,19 @@ class AiClient {
   /// [payloadBytes] 非 0 时附带请求体大小：若失败由请求体过大导致，
   /// 可通过这个数值精确判断服务端限制。
   String _connectionError(Object error, {int payloadBytes = 0}) {
-    final detail = switch (error) {
+    final rawDetail = switch (error) {
       SocketException(:final message) => message,
       HttpException(:final message) => message,
       HandshakeException(:final message) => message,
       _ => error.toString(),
     };
+    final detail = rawDetail.trim().isEmpty ? '未知连接错误' : rawDetail;
     final payloadHint = payloadBytes > 0
         ? '，请求体约 ${(payloadBytes / (1024 * 1024)).toStringAsFixed(1)} MB'
         : '';
-    return '无法连接服务器，请检查网络或接口地址。（$detail$payloadHint）';
+    // 尺寸提示只在真正发起了 body 后才可信；0.0MB 多半是连接层(TCP/TLS/DNS)
+    // 就失败了，需要把底层异常完整透出便于定位（证书 / 网关 / 地址）。
+    return '无法连接服务器，请检查网络或接口地址。\n底层原因：$detail$payloadHint';
   }
 
   /// 测试连接：发一条最小请求，验证 Key / 地址 / 模型可用。
@@ -317,6 +329,7 @@ class AiClient {
     String user,
     List<MessageImage> images, {
     bool stream = false,
+    int maxTokens = 4096,
   }) async {
     final base = config.effectiveBaseUrl.replaceAll(RegExp(r'/+$'), '');
     final apiKey = config.apiKey.trim();
@@ -331,7 +344,7 @@ class AiClient {
         },
         body: {
           'model': config.effectiveModel,
-          'max_tokens': 4096,
+          'max_tokens': maxTokens,
           'temperature': 0.4,
           'system': system,
           'messages': [
@@ -355,7 +368,7 @@ class AiClient {
       },
       body: {
         'model': config.effectiveModel,
-        'max_tokens': 4096,
+        'max_tokens': maxTokens,
         'temperature': 0.4,
         if (stream) 'stream': true,
         'messages': [
@@ -430,25 +443,83 @@ class AiClient {
       throw const AiRequestException('响应结构异常。');
     }
 
+    // 从「单个 content 值」里取出正文：可能是字符串，也可能是数组（多模态
+    // 模型常见 `[{type: text, text: ...}]`），也可能包含其它块类型。
+    String? textFrom(Object? content) {
+      if (content is String) {
+        final t = content.trim();
+        return t.isEmpty ? null : t;
+      }
+      if (content is List) {
+        final parts = <String>[];
+        for (final block in content) {
+          if (block is! Map) continue;
+          final type = block['type'];
+          if (type == 'text' && block['text'] is String) {
+            parts.add(block['text'] as String);
+          } else if (type == 'output_text' && block['text'] is String) {
+            // Anthropic Messages 的 text 块使用 type=text，这里兼容
+            // 个别服务端用 output_text。/ thinking_delta 已单独处理。
+            parts.add(block['text'] as String);
+          } else if (type == 'text' && block['content'] is String) {
+            parts.add(block['content'] as String);
+          }
+        }
+        final joined = parts.join('\n').trim();
+        return joined.isEmpty ? null : joined;
+      }
+      return null;
+    }
+
+    Object? messageContent;
     if (protocol == AiProtocol.openai) {
       final choices = decoded['choices'];
       if (choices is List && choices.isNotEmpty) {
         final message = choices.first is Map ? choices.first['message'] : null;
-        final content = message is Map ? message['content'] : null;
-        if (content is String && content.trim().isNotEmpty) {
-          return content.trim();
-        }
+        messageContent = message is Map ? message['content'] : null;
       }
     } else {
-      final content = decoded['content'];
-      if (content is List && content.isNotEmpty) {
-        final first = content.first;
-        if (first is Map && first['text'] is String) {
-          return (first['text'] as String).trim();
+      messageContent = decoded['content'];
+    }
+
+    final text = textFrom(messageContent);
+    if (text != null) return text;
+
+    // 正文确实为空：给出可定位的提示，而不是笼统的「缺少文本」。
+    // 若响应里存在思考内容（reasoning/思考块），说明是「只思考、未产出
+    // 正文」，常见于 max_tokens 被思考挤满，提示用户重试或调大上限。
+    final hasReasoning = _containsReasoning(decoded);
+    if (hasReasoning) {
+      throw const AiRequestException('模型只输出了思考、没有生成正文。可能是思考过长占满了输出上限，请重试。');
+    }
+    throw const AiRequestException('响应缺少文本内容，请重试。');
+  }
+
+  /// 判断解码后的响应体里是否含思考内容（reasoning / thinking 等）。
+  bool _containsReasoning(Object? node) {
+    if (node is String) {
+      return node.contains('reasoning');
+    }
+    if (node is Map) {
+      for (final entry in node.entries) {
+        if (entry.key == 'reasoning' ||
+            entry.key == 'thinking' ||
+            entry.key == 'reasoning_content' ||
+            entry.key == 'thought') {
+          if (entry.value is String && (entry.value as String).isNotEmpty) {
+            return true;
+          }
         }
+        if (entry.key == 'type' && entry.value == 'thinking') return true;
+        if (_containsReasoning(entry.value)) return true;
       }
     }
-    throw const AiRequestException('响应缺少文本内容。');
+    if (node is List) {
+      for (final item in node) {
+        if (_containsReasoning(item)) return true;
+      }
+    }
+    return false;
   }
 
   String? _extractThinking(AiProtocol protocol, String raw) {

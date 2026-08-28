@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 
 import '../../models/models.dart';
@@ -12,6 +11,7 @@ import '../../providers/app_providers.dart';
 import '../../screens/ai_config_screen.dart';
 import '../../theme/mode_theme.dart';
 import '../../utils/format.dart';
+import '../feedback/feedback.dart';
 
 /// 各模式的危险色（删除、危险操作）。
 Color _modeDanger(ModeTheme mode) {
@@ -108,11 +108,9 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
 
   /// 打开「配置 AI 接口」全屏页（保存由页面内完成）。
   void _openAiConfig() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => const AiConfigScreen(),
-      ),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const AiConfigScreen()));
   }
 
   /// 搜索命中范围：自定义名称 + 日期时间（重命名后仍可按原日期时间搜到）。
@@ -173,7 +171,7 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                   ? _EmptyHistory(mode: mode, hasQuery: query.isNotEmpty)
                   : ListView(
                       // 顶部留白避开悬浮控件，底部留白避开渐变遮罩。
-                      padding: const EdgeInsets.fromLTRB(16, 268, 16, 220),
+                      padding: const EdgeInsets.fromLTRB(16, 268, 16, 330),
                       children: [
                         if (pinned.isNotEmpty) ...[
                           _HistorySectionLabel(mode: mode, text: '置顶'),
@@ -293,17 +291,106 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
               left: 16,
               right: 16,
               bottom: 14,
-              child: _SecondaryActionButton(
-                mode: mode,
-                icon: Icons.photo_library_outlined,
-                label: '资产管理',
-                onTap: () => _showAssetManagementPlaceholder(context, mode),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _SecondaryActionButton(
+                    mode: mode,
+                    icon: Icons.photo_library_rounded,
+                    label: '资产管理',
+                    onTap: () => _showAssetManagementPlaceholder(context, mode),
+                  ),
+                  const SizedBox(height: 10),
+                  // 清空所有数据：与资产管理同款次按钮，主色图标 + 主色文字。
+                  _SecondaryActionButton(
+                    mode: mode,
+                    icon: Icons.delete_sweep_outlined,
+                    label: '清空所有数据',
+                    onTap: () => _confirmWipeAllData(context),
+                  ),
+                ],
               ),
             ),
           ],
         ),
       ),
     );
+  }
+
+  /// 清空全部用户数据：二次确认后调用仓库清空，并重置当前对话选择。
+  /// 确认按钮使用模式主色（与「清空所有数据」按钮的主色一致）。
+  Future<void> _confirmWipeAllData(BuildContext context) async {
+    final mode = widget.mode;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          width: 300,
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+          decoration: _cardSurface(mode),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _DialogHeader(
+                mode: mode,
+                icon: Icons.delete_forever_outlined,
+                title: '清空所有数据？',
+              ),
+              const SizedBox(height: 10),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 240),
+                child: SingleChildScrollView(
+                  child: Text(
+                    '将删除：\n· 全部聊天记录与消息\n· 全部模式分析卡片\n· 长期记忆档案\n· 全部上传图片\n\n保留：AI 接口配置（API Key）。\n\n此操作不可撤销。',
+                    style: TextStyle(color: mode.cardBody, height: 1.6),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DialogGhostButton(
+                      mode: mode,
+                      label: '取消',
+                      onTap: () => Navigator.of(context).pop(false),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _DialogPrimaryButton(
+                      mode: mode,
+                      label: '清空',
+                      onTap: () => Navigator.of(context).pop(true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (confirmed != true || !context.mounted) return;
+
+    try {
+      await ref.read(appRepositoryProvider).wipeUserData();
+      // 重置当前对话选择与思考状态，让界面回到全新空白态。
+      ref.read(selectedConversationIdProvider.notifier).state = null;
+      ref.invalidate(casesProvider);
+      ref.invalidate(memoryProfileProvider);
+      ref.invalidate(assetsProvider);
+      if (!context.mounted) return;
+      FeedbackDialog.show(context, mode, message: '已清空全部数据');
+    } catch (e, st) {
+      debugPrint('[SettingsPanel] 清空数据失败: $e\n$st');
+      if (!context.mounted) return;
+      FeedbackDialog.error(context, mode, '清空失败，请稍后重试。');
+    }
   }
 
   void _showAssetManagementPlaceholder(BuildContext context, ModeTheme mode) {
@@ -316,6 +403,11 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
 }
 
 /// 长按聊天记录弹出的操作菜单：跟随手指位置、卡片视觉跟随模式。
+
+/// 长按聊天记录弹出的操作菜单：跟随手指位置、卡片视觉跟随模式。
+///
+/// 每个操作一项：主色瓷片图标 + 文字，危险项（删除）用模式危险色；
+/// 菜单项之间用细分割线，圆角 / 描边 / 阴影跟随模式卡片语言。
 class _RowActionMenu extends StatelessWidget {
   const _RowActionMenu({
     required this.mode,
@@ -329,8 +421,8 @@ class _RowActionMenu extends StatelessWidget {
   final Offset touch;
   final bool canUnpin;
 
-  static const _width = 192.0;
-  static const _itemHeight = 46.0;
+  static const _width = 208.0;
+  static const _itemHeight = 52.0;
 
   static Future<String?> show(
     BuildContext context, {
@@ -387,46 +479,44 @@ class _RowActionMenu extends StatelessWidget {
               side: BorderSide(color: mode.cardBorder, width: 1),
             ),
             clipBehavior: Clip.antiAlias,
-            elevation: 12,
+            elevation: 14,
             shadowColor: Colors.black.withValues(
-              alpha: (mode.cardShadowAlpha + 0.08).clamp(0, 1),
+              alpha: (mode.cardShadowAlpha + 0.10).clamp(0, 1),
             ),
             child: SizedBox(
               width: _width,
               child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                _MenuAction(
-                  mode: mode,
-                  icon: canUnpin
-                      ? Icons.push_pin_rounded
-                      : Icons.push_pin_outlined,
-                  label: canUnpin ? '取消置顶' : '置顶',
-                  onTap: () => Navigator.of(context).pop('pin'),
-                ),
-                _menuDivider(mode),
-                _MenuAction(
-                  mode: mode,
-                  icon: Icons.edit_outlined,
-                  label: '重命名',
-                  onTap: () => Navigator.of(context).pop('rename'),
-                ),
-                _menuDivider(mode),
-                _MenuAction(
-                  mode: mode,
-                  icon: Icons.ios_share_rounded,
-                  label: '分享',
-                  onTap: () => Navigator.of(context).pop('share'),
-                ),
-                _menuDivider(mode),
-                _MenuAction(
-                  mode: mode,
-                  icon: Icons.delete_outline_rounded,
-                  label: '删除',
-                  accent: _modeDanger(mode),
-                  onTap: () => Navigator.of(context).pop('delete'),
-                ),
-              ],
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _MenuAction(
+                    mode: mode,
+                    icon: Icons.push_pin_rounded,
+                    label: canUnpin ? '取消置顶' : '置顶',
+                    onTap: () => Navigator.of(context).pop('pin'),
+                  ),
+                  _menuDivider(mode),
+                  _MenuAction(
+                    mode: mode,
+                    icon: Icons.edit_rounded,
+                    label: '重命名',
+                    onTap: () => Navigator.of(context).pop('rename'),
+                  ),
+                  _menuDivider(mode),
+                  _MenuAction(
+                    mode: mode,
+                    icon: Icons.ios_share_rounded,
+                    label: '分享',
+                    onTap: () => Navigator.of(context).pop('share'),
+                  ),
+                  _menuDivider(mode),
+                  _MenuAction(
+                    mode: mode,
+                    icon: Icons.delete_outlined,
+                    label: '删除',
+                    accent: _modeDanger(mode),
+                    onTap: () => Navigator.of(context).pop('delete'),
+                  ),
+                ],
               ),
             ),
           ),
@@ -436,7 +526,7 @@ class _RowActionMenu extends StatelessWidget {
   }
 }
 
-/// 菜单单项：主色图标 + 小字号文字，危险项用模式危险色。
+/// 菜单单项：主色瓷片图标 + 文字，危险项整体用模式危险色。
 class _MenuAction extends StatelessWidget {
   const _MenuAction({
     required this.mode,
@@ -457,6 +547,7 @@ class _MenuAction extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = accent ?? mode.primary;
+    final chipBackground = color.withValues(alpha: 0.10);
     return InkWell(
       onTap: onTap,
       child: SizedBox(
@@ -465,8 +556,16 @@ class _MenuAction extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 14),
           child: Row(
             children: [
-              Icon(icon, size: 16, color: color),
-              const SizedBox(width: 10),
+              Container(
+                width: 30,
+                height: 30,
+                decoration: BoxDecoration(
+                  color: chipBackground,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Icon(icon, size: 16, color: color),
+              ),
+              const SizedBox(width: 12),
               Text(
                 label,
                 style: TextStyle(
@@ -514,14 +613,18 @@ class _ConfirmDeleteDialogState extends State<_ConfirmDeleteDialog> {
           children: [
             _DialogHeader(
               mode: mode,
-              icon: Icons.delete_outline_rounded,
+              icon: Icons.delete_outlined,
               title: '删除这段对话？',
               accent: danger,
             ),
             const SizedBox(height: 10),
             Text(
               '聊天记录与截图将一并删除，此操作无法恢复。',
-              style: TextStyle(color: mode.cardMuted, fontSize: 12, height: 1.5),
+              style: TextStyle(
+                color: mode.cardMuted,
+                fontSize: 12,
+                height: 1.5,
+              ),
             ),
             const SizedBox(height: 14),
             // 显著提示块：危险色底 + 危险色描边，勾选则连同记忆一起删除。
@@ -585,8 +688,7 @@ class _ConfirmDeleteDialogState extends State<_ConfirmDeleteDialog> {
                   child: _DialogDangerButton(
                     mode: mode,
                     label: '删除',
-                    onTap: () =>
-                        Navigator.of(context).pop((true, _withMemory)),
+                    onTap: () => Navigator.of(context).pop((true, _withMemory)),
                   ),
                 ),
               ],
@@ -642,7 +744,11 @@ class _DialogHeader extends StatelessWidget {
 
 /// 次要按钮：透明底 + 弱化文字，圆角/切角跟随模式。
 class _DialogGhostButton extends StatelessWidget {
-  const _DialogGhostButton({required this.mode, required this.label, required this.onTap});
+  const _DialogGhostButton({
+    required this.mode,
+    required this.label,
+    required this.onTap,
+  });
 
   final ModeTheme mode;
   final String label;
@@ -703,7 +809,11 @@ class _DialogPrimaryButton extends StatelessWidget {
 
 /// 危险按钮：模式危险色填充，圆角/切角跟随模式。
 class _DialogDangerButton extends StatelessWidget {
-  const _DialogDangerButton({required this.mode, required this.label, required this.onTap});
+  const _DialogDangerButton({
+    required this.mode,
+    required this.label,
+    required this.onTap,
+  });
 
   final ModeTheme mode;
   final String label;
@@ -756,7 +866,7 @@ class _SettingsHeader extends StatelessWidget {
   }
 }
 
-/// 搜索框（样式跟随模式：圆角 / 直角 / 斜切）。
+/// 搜索框（与输入框统一：chip 底色 + 描边 + 模式圆角，三模式通用）。
 class _SettingsSearchField extends StatelessWidget {
   const _SettingsSearchField({
     required this.mode,
@@ -772,33 +882,27 @@ class _SettingsSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 比输赢模式：深色底 + 白色输入文字（保证可见）；其余模式用卡片色组。
-    final isWin = mode.view == BattleView.win;
-    final fieldBackground = isWin ? mode.surface : mode.cardBackground;
-    final fieldText = isWin ? mode.text : mode.cardBody;
-    final fieldMuted = isWin ? mode.textMuted : mode.cardMuted;
-
     return Container(
       decoration: BoxDecoration(
-        color: fieldBackground,
+        color: mode.chipBackground,
         borderRadius: mode.inputRadius,
-        border: Border.all(color: mode.cardBorder),
+        border: Border.all(color: mode.chipBorder),
       ),
       child: TextField(
         controller: controller,
         onChanged: onChanged,
-        style: TextStyle(color: fieldText, fontSize: 14),
-        cursorColor: isWin ? mode.text : mode.primary,
+        style: TextStyle(color: mode.text, fontSize: 14),
+        cursorColor: mode.primary,
         textInputAction: TextInputAction.search,
         decoration: InputDecoration(
           hintText: '搜索聊天记录',
-          hintStyle: TextStyle(color: fieldMuted, fontSize: 13),
+          hintStyle: TextStyle(color: mode.textMuted, fontSize: 13),
           border: InputBorder.none,
           contentPadding: const EdgeInsets.symmetric(vertical: 13),
           prefixIcon: Icon(
-            Icons.search_rounded,
+            Icons.search_outlined,
             size: 20,
-            color: fieldMuted,
+            color: mode.textMuted,
           ),
           suffixIcon: ValueListenableBuilder<TextEditingValue>(
             valueListenable: controller,
@@ -806,7 +910,11 @@ class _SettingsSearchField extends StatelessWidget {
               if (value.text.isEmpty) return const SizedBox.shrink();
               return IconButton(
                 tooltip: '清空',
-                icon: Icon(Icons.close_rounded, size: 18, color: fieldMuted),
+                icon: Icon(
+                  Icons.close_rounded,
+                  size: 18,
+                  color: mode.textMuted,
+                ),
                 onPressed: onClear,
               );
             },
@@ -947,43 +1055,109 @@ class _AssetManagementScreen extends ConsumerStatefulWidget {
   final ModeTheme mode;
 
   @override
-  ConsumerState<_AssetManagementScreen> createState() => _AssetManagementScreenState();
+  ConsumerState<_AssetManagementScreen> createState() =>
+      _AssetManagementScreenState();
 }
 
-class _AssetManagementScreenState extends ConsumerState<_AssetManagementScreen> {
-  bool _sortByTitle = false;
-  final Set<String> _selected = {};
+/// 资产管理按「对话」组织：一行一个对话（按日期时间命名），点击展开该对话的
+/// 全部图片缩略图；只支持按对话整组删除，不支持逐张删除。
+class _AssetManagementScreenState
+    extends ConsumerState<_AssetManagementScreen> {
+  /// 当前展开显示缩略图的对话 id 集合。
+  final Set<String> _expanded = {};
 
-  Future<List<_AssetRecord>> _loadAssets() async {
+  Future<List<_ConversationAssets>> _loadGroups() async {
     final repository = ref.read(appRepositoryProvider);
     final cases = await repository.watchCases().first;
     final assets = await repository.watchAssets().first;
-    final records = <_AssetRecord>[];
-    for (final asset in assets) {
-      final related = <Case>[];
-      for (final caseItem in cases) {
-        final messages = await repository.watchMessages(caseItem.id).first;
-        if (messages.any((message) => message.assetPath == asset.path)) related.add(caseItem);
+    final byPath = <String, Asset>{for (final a in assets) a.path: a};
+
+    // 对话 id -> 消息里出现过的资产缩略图列表（按消息顺序）。
+    final groups = <_ConversationAssets>[];
+    for (final caseItem in cases) {
+      final messages = await repository.watchMessages(caseItem.id).first;
+      final images = <_AssetRecord>[];
+      for (final message in messages) {
+        final path = message.assetPath;
+        if (path == null || path.isEmpty || !message.isImageType) continue;
+        final asset = byPath[path];
+        if (asset == null) continue;
+        // 同一路径可能多次出现，只在第一个出现的位置计入列表。
+        if (images.any((r) => r.path == path)) continue;
+        images.add(_AssetRecord(asset: asset, caseItem: caseItem));
       }
-      for (final caseItem in related) {
-        records.add(_AssetRecord(asset: asset, caseItem: caseItem));
-      }
+      if (images.isNotEmpty) groups.add(_ConversationAssets(caseItem, images));
     }
-    records.sort((a, b) => _sortByTitle
-        ? a.displayTitle.compareTo(b.displayTitle)
-        : b.createdAt.compareTo(a.createdAt));
-    return records;
+
+    // 按对话创建时间倒序。
+    groups.sort((a, b) => b.caseItem.createdAt.compareTo(a.caseItem.createdAt));
+    return groups;
   }
 
-  Future<void> _deleteSelected(List<_AssetRecord> assets) async {
+  /// 整组删除：删除该对话涉及的全部资产文件与记录（资产可能被多个对话共用，
+  /// 删除时只删掉「本对话」用到的资产记录，但物理文件仅在无其它对话引用时删除）。
+  Future<void> _deleteGroup(_ConversationAssets group) async {
     final repository = ref.read(appRepositoryProvider);
+    final mode = widget.mode;
+    // 确认后再删除；确认按钮沿用模式危险红。
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Container(
+          width: 300,
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+          decoration: _cardSurface(mode),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _DialogHeader(
+                mode: mode,
+                icon: Icons.delete_outlined,
+                title: '删除这段对话的图片？',
+                accent: _modeDanger(mode),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '将删除「${group.label}」下的 ${group.images.length} 张图片记录，此操作无法恢复。',
+                style: TextStyle(color: mode.cardBody, height: 1.5),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  Expanded(
+                    child: _DialogGhostButton(
+                      mode: mode,
+                      label: '取消',
+                      onTap: () => Navigator.of(context).pop(false),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _DialogDangerButton(
+                      mode: mode,
+                      label: '删除',
+                      onTap: () => Navigator.of(context).pop(true),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
     final ids = <String>[];
-    for (final asset in assets.where((item) => _selected.contains(item.path))) {
-      final saved = await repository.assetByPath(asset.path);
+    for (final image in group.images) {
+      final saved = await repository.assetByPath(image.path);
       if (saved != null) ids.add(saved.id);
     }
     await repository.deleteAssets(ids);
-    setState(() => _selected.clear());
+    if (mounted) setState(() => _expanded.remove(group.caseItem.id));
   }
 
   @override
@@ -995,71 +1169,71 @@ class _AssetManagementScreenState extends ConsumerState<_AssetManagementScreen> 
         backgroundColor: mode.background,
         foregroundColor: mode.text,
         title: const Text('资产管理'),
-        actions: [
-          IconButton(
-            tooltip: '按标题排序',
-            onPressed: () => setState(() => _sortByTitle = !_sortByTitle),
-            icon: Icon(_sortByTitle ? Icons.sort_by_alpha : Icons.schedule),
-          ),
-        ],
       ),
-      body: FutureBuilder<List<_AssetRecord>>(
-        future: _loadAssets(),
+      body: FutureBuilder<List<_ConversationAssets>>(
+        future: _loadGroups(),
         builder: (context, snapshot) {
-          final assets = snapshot.data ?? const <_AssetRecord>[];
-          final total = assets.fold<int>(0, (sum, item) => sum + item.size);
-          final byConversation = <String, int>{};
-          for (final item in assets) {
-            byConversation[item.caseItem.id] =
-                (byConversation[item.caseItem.id] ?? 0) + item.size;
+          final groups = snapshot.data ?? const <_ConversationAssets>[];
+          final totalCount = groups.fold<int>(
+            0,
+            (sum, g) => sum + g.images.length,
+          );
+          if (groups.isEmpty) {
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.photo_library_outlined,
+                    size: 34,
+                    color: mode.textMuted,
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    '还没有上传的图片',
+                    style: TextStyle(color: mode.textMuted, fontSize: 13),
+                  ),
+                ],
+              ),
+            );
           }
           return Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
                 child: Text(
-                  '图片 ${_formatSize(total)} · ${assets.length} 张 · ${byConversation.length} 个对话',
+                  '共 ${groups.length} 个对话 · $totalCount 张图片',
                   style: TextStyle(color: mode.textMuted, fontSize: 12),
                 ),
               ),
-              if (_selected.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Align(
-                    alignment: Alignment.centerRight,
-                    child: TextButton.icon(
-                      onPressed: () => _deleteSelected(assets),
-                      icon: Icon(Icons.delete_outline, color: _modeDanger(mode)),
-                      label: Text('删除所选', style: TextStyle(color: _modeDanger(mode))),
-                    ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                child: Text(
+                  '按对话整组管理，展开即可查看该对话的全部图片；删除按对话进行。',
+                  style: TextStyle(
+                    color: mode.textMuted,
+                    fontSize: 11,
+                    height: 1.4,
                   ),
                 ),
+              ),
               Expanded(
                 child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
                   children: [
-                    for (final caseItem in byConversation.keys.map((id) => assets.firstWhere((a) => a.caseItem.id == id).caseItem)) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(top: 10, bottom: 6),
-                        child: Text(
-                          '${caseItem.displayTitle} · ${_formatSize(byConversation[caseItem.id] ?? 0)}',
-                          style: TextStyle(color: mode.text, fontWeight: FontWeight.w700),
-                        ),
+                    for (final group in groups) ...[
+                      _ConversationAssetGroup(
+                        mode: mode,
+                        group: group,
+                        expanded: _expanded.contains(group.caseItem.id),
+                        onToggle: () => setState(() {
+                          if (!_expanded.remove(group.caseItem.id)) {
+                            _expanded.add(group.caseItem.id);
+                          }
+                        }),
+                        onDelete: () => _deleteGroup(group),
                       ),
-                      for (final asset in assets.where((a) => a.caseItem.id == caseItem.id))
-                        _AssetTile(
-                          asset: asset,
-                          mode: mode,
-                          selected: _selected.contains(asset.path),
-                          onSelected: (value) => setState(() => value ? _selected.add(asset.path) : _selected.remove(asset.path)),
-                          onRename: (title) async {
-                            final current = await ref.read(appRepositoryProvider).assetByPath(asset.path);
-                            if (current != null) {
-                              await ref.read(appRepositoryProvider).renameAsset(current.id, title);
-                              if (mounted) setState(() {});
-                            }
-                          },
-                        ),
+                      const SizedBox(height: 10),
                     ],
                   ],
                 ),
@@ -1070,12 +1244,34 @@ class _AssetManagementScreenState extends ConsumerState<_AssetManagementScreen> 
       ),
     );
   }
+}
 
-  String _formatSize(int bytes) {
-    if (bytes >= 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
-    if (bytes >= 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
-    return '${(bytes / 1024).toStringAsFixed(0)} KB';
+/// 可读的体积格式化。
+String _formatSize(int bytes) {
+  if (bytes >= 1024 * 1024 * 1024) {
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
   }
+  if (bytes >= 1024 * 1024) {
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+  if (bytes >= 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+  return '$bytes B';
+}
+
+/// 一个对话组（对话 + 该对话用到的图片）。
+class _ConversationAssets {
+  const _ConversationAssets(this.caseItem, this.images);
+  final Case caseItem;
+  final List<_AssetRecord> images;
+
+  /// 按日期时间命名（与聊天记录一致）；有自定义名称时优先显示自定义名称。
+  String get label {
+    final hasName = caseItem.title != null && caseItem.title!.isNotEmpty;
+    if (hasName) return caseItem.title!;
+    return dateTimeLabel(caseItem.createdAt);
+  }
+
+  int get totalSizeBytes => images.fold<int>(0, (sum, r) => sum + r.size);
 }
 
 class _AssetRecord {
@@ -1085,54 +1281,285 @@ class _AssetRecord {
   String get path => asset.path;
   DateTime get createdAt => asset.createdAt;
   int get size => asset.sizeBytes;
-  String get displayTitle => asset.displayTitle;
 }
 
-class _AssetTile extends StatelessWidget {
-  const _AssetTile({required this.asset, required this.mode, required this.selected, required this.onSelected, required this.onRename});
-  final _AssetRecord asset;
+/// 单个对话资产组：收起时一行展示「日期名称 + 图片数 + 大小」；
+/// 展开后横向滚动展示全部缩略图（点击看大图），并附带「整组删除」。
+class _ConversationAssetGroup extends StatefulWidget {
+  const _ConversationAssetGroup({
+    required this.mode,
+    required this.group,
+    required this.expanded,
+    required this.onToggle,
+    required this.onDelete,
+  });
+
   final ModeTheme mode;
-  final bool selected;
-  final ValueChanged<bool> onSelected;
-  final ValueChanged<String> onRename;
+  final _ConversationAssets group;
+  final bool expanded;
+  final VoidCallback onToggle;
+  final VoidCallback onDelete;
 
   @override
+  State<_ConversationAssetGroup> createState() =>
+      _ConversationAssetGroupState();
+}
+
+class _ConversationAssetGroupState extends State<_ConversationAssetGroup> {
+  @override
   Widget build(BuildContext context) {
-    return Card(
+    final mode = widget.mode;
+    final group = widget.group;
+
+    return Material(
       color: mode.cardBackground,
-      child: ListTile(
-        leading: GestureDetector(
-          onTap: () => showDialog<void>(
-            context: context,
-            builder: (_) => Dialog(
-              child: Image.file(
-                File(asset.path),
-                errorBuilder: (_, _, _) => _MissingAssetIcon(mode: mode),
+      shape: RoundedRectangleBorder(
+        borderRadius: mode.cardRadius,
+        side: BorderSide(color: mode.cardBorder, width: 1),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            onTap: widget.onToggle,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+              child: Row(
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: mode.primary.withValues(alpha: 0.14),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Icon(
+                      Icons.photo_library_outlined,
+                      size: 18,
+                      color: mode.primary,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          group.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: mode.cardTitle,
+                            fontSize: 15,
+                            fontWeight: mode.strongWeight,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          '${group.images.length} 张 · ${_formatSize(group.totalSizeBytes)}',
+                          style: TextStyle(color: mode.cardMuted, fontSize: 12),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  // 整组删除：主色描边小按钮，与展开箭头并列、间距加大。
+                  _GroupDeleteButton(mode: mode, onDelete: widget.onDelete),
+                  const SizedBox(width: 2),
+                  Icon(
+                    widget.expanded
+                        ? Icons.keyboard_arrow_up_rounded
+                        : Icons.keyboard_arrow_down_rounded,
+                    size: 20,
+                    color: mode.cardMuted,
+                  ),
+                ],
               ),
             ),
           ),
-          child: Image.file(
-            File(asset.path),
-            width: 52,
-            height: 52,
-            fit: BoxFit.cover,
-            // 文件可能已被移动/删除：显示占位图标而不是报错。
-            errorBuilder: (_, _, _) => _MissingAssetIcon(mode: mode),
+          AnimatedCrossFade(
+            firstChild: const SizedBox(width: double.infinity, height: 0),
+            secondChild: _GroupContent(mode: mode, images: group.images),
+            crossFadeState: widget.expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            duration: const Duration(milliseconds: 200),
           ),
-        ),
-        title: Text(asset.displayTitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: mode.cardTitle)),
-        subtitle: Text('${_formatDateTime(asset.createdAt)} · ${asset.size ~/ 1024} KB', style: TextStyle(color: mode.cardMuted, fontSize: 11)),
-        trailing: Checkbox(value: selected, onChanged: (value) => onSelected(value ?? false)),
-        onLongPress: () async {
-          final controller = TextEditingController(text: asset.displayTitle);
-          final title = await showDialog<String>(context: context, builder: (_) => AlertDialog(title: const Text('重命名资产'), content: TextField(controller: controller), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')), TextButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('保存'))]));
-          if (title != null && title.isNotEmpty) onRename(title);
-        },
+        ],
       ),
     );
   }
+}
 
-  String _formatDateTime(DateTime value) => '${value.month}/${value.day} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+/// 整组删除小按钮：主色描边 + 主色图标（危险操作不再用突兀的大红块）。
+class _GroupDeleteButton extends StatelessWidget {
+  const _GroupDeleteButton({required this.mode, required this.onDelete});
+
+  final ModeTheme mode;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(10),
+        side: BorderSide(color: mode.primary.withValues(alpha: 0.35)),
+      ),
+      child: InkWell(
+        onTap: onDelete,
+        borderRadius: BorderRadius.circular(10),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.delete_outlined, size: 15, color: mode.primary),
+              const SizedBox(width: 5),
+              Text(
+                '删除图片',
+                style: TextStyle(
+                  color: mode.primary,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 对话组展开后的内容：横向缩略图。
+class _GroupContent extends StatelessWidget {
+  const _GroupContent({required this.mode, required this.images});
+
+  final ModeTheme mode;
+  final List<_AssetRecord> images;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Divider(
+          height: 1,
+          thickness: 1,
+          color: mode.cardBorder.withValues(alpha: 0.6),
+        ),
+        // 缩略图 + 序号文字高约 79（图片 64 + 间距 2 + 文字）；高度与内边距
+        // 留足，确保底部序号文字与卡片下沿有间距，不会被裁切或贴边。
+        SizedBox(
+          height: 108,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 18),
+            itemCount: images.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 8),
+            itemBuilder: (context, index) {
+              final record = images[index];
+              return _AssetThumb(
+                mode: mode,
+                asset: record.asset,
+                index: index,
+                total: images.length,
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// 对话内单张缩略图：点击放大预览；显示序号与文件名（超出省略）。
+class _AssetThumb extends StatelessWidget {
+  const _AssetThumb({
+    required this.mode,
+    required this.asset,
+    required this.index,
+    required this.total,
+  });
+
+  final ModeTheme mode;
+  final Asset asset;
+  final int index;
+  final int total;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = asset.displayTitle.length > 18
+        ? '${asset.displayTitle.substring(0, 18)}…'
+        : asset.displayTitle;
+    return GestureDetector(
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (_) => Dialog(
+          backgroundColor: Colors.transparent,
+          child: Stack(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(14),
+                child: Image.file(
+                  File(asset.path),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, _, _) => _MissingAssetIcon(mode: mode),
+                ),
+              ),
+              Positioned(
+                bottom: 10,
+                right: 10,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: 0.6),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: Text(
+                    name,
+                    style: const TextStyle(color: Colors.white, fontSize: 10),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(8),
+            child: Image.file(
+              File(asset.path),
+              width: 64,
+              height: 64,
+              fit: BoxFit.cover,
+              // 文件可能已被移动/删除：显示占位图标而不是报错。
+              errorBuilder: (_, _, _) => _MissingAssetIcon(mode: mode),
+            ),
+          ),
+          const SizedBox(height: 2),
+          SizedBox(
+            width: 64,
+            child: Text(
+              '${index + 1}/$total · $name',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: mode.cardMuted, fontSize: 9),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// 图片文件缺失时的占位图标（资产已被移动/删除时展示，不中断列表渲染）。
@@ -1144,10 +1571,11 @@ class _MissingAssetIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      width: 52,
-      height: 52,
+      width: 64,
+      height: 64,
       color: mode.cardBorder.withValues(alpha: 0.35),
-      child: Icon(Icons.broken_image_outlined, size: 22, color: mode.cardMuted),
+      alignment: Alignment.center,
+      child: Icon(Icons.broken_image_outlined, size: 24, color: mode.cardMuted),
     );
   }
 }
@@ -1176,24 +1604,14 @@ class _ConversationRowState extends ConsumerState<_ConversationRow> {
 
   @override
   Widget build(BuildContext context) {
-    // 比输赢模式走黑白对决：选中=灰色、未选中=黑色；其余模式沿用主题高亮。
-    final isWin = mode.view == BattleView.win;
-    final Color rowBackground;
-    final Color titleColor;
-    final Color timeColor;
-    if (isWin) {
-      rowBackground = isActive ? mode.cardBackground : mode.surface;
-      titleColor = isActive ? mode.cardTitle : mode.text;
-      timeColor = isActive ? mode.cardMuted : mode.textMuted;
-    } else {
-      rowBackground = isActive ? mode.primary : mode.cardBackground;
-      titleColor = isActive ? mode.onPrimary : mode.cardTitle;
-      timeColor = isActive
-          ? mode.onPrimary.withValues(alpha: 0.78)
-          : mode.cardMuted;
-    }
+    // 选中 = 主色填充（比输赢为黑底白字），未选中 = 卡片色，三模式同一逻辑。
+    final rowBackground = isActive ? mode.primary : mode.cardBackground;
+    final titleColor = isActive ? mode.onPrimary : mode.cardTitle;
+    final timeColor = isActive
+        ? mode.onPrimary.withValues(alpha: 0.78)
+        : mode.cardMuted;
     final rowBorder = isActive
-        ? (isWin ? mode.primary : mode.onPrimary.withValues(alpha: 0.35))
+        ? mode.onPrimary.withValues(alpha: 0.35)
         : mode.cardBorder;
 
     final hasName = caseItem.title != null && caseItem.title!.isNotEmpty;
@@ -1293,16 +1711,11 @@ class _ConversationRowState extends ConsumerState<_ConversationRow> {
       );
       if (!mounted) return;
       await SharePlus.instance.share(
-        ShareParams(
-          files: [XFile(file.path)],
-          text: 'So What 聊天记录分享包',
-        ),
+        ShareParams(files: [XFile(file.path)], text: 'So What 聊天记录分享包'),
       );
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('分享失败：$error')),
-        );
+        FeedbackDialog.error(context, mode, '分享失败：$error');
       }
     }
   }
@@ -1320,10 +1733,8 @@ class _ConversationRowState extends ConsumerState<_ConversationRow> {
   Future<void> _showRenameDialog() async {
     final title = await showDialog<String>(
       context: context,
-      builder: (_) => _RenameDialog(
-        mode: mode,
-        initialName: caseItem.title ?? '',
-      ),
+      builder: (_) =>
+          _RenameDialog(mode: mode, initialName: caseItem.title ?? ''),
     );
     if (title == null || title.isEmpty || title == caseItem.title) return;
     try {
@@ -1346,7 +1757,8 @@ class _ConversationRowState extends ConsumerState<_ConversationRow> {
     try {
       final actions = ref.read(repositoryActionsProvider);
       final repository = ref.read(appRepositoryProvider);
-      final wasCurrent = ref.read(selectedConversationIdProvider) == caseItem.id;
+      final wasCurrent =
+          ref.read(selectedConversationIdProvider) == caseItem.id;
       await actions.deleteConversation(caseItem.id, deleteMemory: deleteMemory);
 
       // 删的是当前打开的对话时，切到最近一条；没有剩余则新建一段空白对话。
@@ -1368,13 +1780,7 @@ class _ConversationRowState extends ConsumerState<_ConversationRow> {
 
   void _showError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    FeedbackDialog.error(context, mode, message);
   }
 }
 
@@ -1414,7 +1820,7 @@ class _EmptyHistory extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              hasQuery ? Icons.search_off_rounded : Icons.chat_rounded,
+              hasQuery ? Icons.search_off_outlined : Icons.chat_outlined,
               size: 34,
               color: mode.textMuted,
             ),
@@ -1454,8 +1860,9 @@ class _RenameDialog extends StatefulWidget {
 }
 
 class _RenameDialogState extends State<_RenameDialog> {
-  late final TextEditingController _controller =
-      TextEditingController(text: widget.initialName);
+  late final TextEditingController _controller = TextEditingController(
+    text: widget.initialName,
+  );
 
   @override
   void dispose() {
@@ -1466,9 +1873,6 @@ class _RenameDialogState extends State<_RenameDialog> {
   @override
   Widget build(BuildContext context) {
     final mode = widget.mode;
-    final isWin = mode.view == BattleView.win;
-    final inputText = isWin ? mode.text : mode.cardBody;
-    final inputMuted = isWin ? mode.textMuted : mode.cardMuted;
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -1481,33 +1885,33 @@ class _RenameDialogState extends State<_RenameDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _DialogHeader(
-              mode: mode,
-              icon: Icons.edit_outlined,
-              title: '重命名对话',
-            ),
+            _DialogHeader(mode: mode, icon: Icons.edit_rounded, title: '重命名对话'),
             const SizedBox(height: 10),
             Text(
               '自定义名称会替代日期显示，原日期时间仍可搜索。',
-              style: TextStyle(color: mode.cardMuted, fontSize: 12, height: 1.5),
+              style: TextStyle(
+                color: mode.cardMuted,
+                fontSize: 12,
+                height: 1.5,
+              ),
             ),
             const SizedBox(height: 14),
             Container(
               decoration: BoxDecoration(
-                color: mode.surface,
+                color: mode.chipBackground,
                 borderRadius: mode.inputRadius,
-                border: Border.all(color: mode.cardBorder),
+                border: Border.all(color: mode.chipBorder),
               ),
               child: TextField(
                 controller: _controller,
                 autofocus: true,
                 // 用格式化器限制长度，不显示计数器，避免撑高输入框破坏胶囊圆角。
                 inputFormatters: [LengthLimitingTextInputFormatter(30)],
-                style: TextStyle(color: inputText, fontSize: 14),
-                cursorColor: isWin ? mode.text : mode.primary,
+                style: TextStyle(color: mode.text, fontSize: 14),
+                cursorColor: mode.primary,
                 decoration: InputDecoration(
                   hintText: '输入新名称',
-                  hintStyle: TextStyle(color: inputMuted, fontSize: 12.5),
+                  hintStyle: TextStyle(color: mode.textMuted, fontSize: 12.5),
                   border: InputBorder.none,
                   contentPadding: const EdgeInsets.symmetric(
                     horizontal: 14,

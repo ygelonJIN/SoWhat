@@ -95,10 +95,19 @@ class _BattleCanvasState extends State<BattleCanvas> {
                   expanded: expanded,
                   startedAt: startedAt,
                   onToggle: () {
-                    ref.read(thinkingExpandedProvider(thinkingKey).notifier).state = !expanded;
+                    ref
+                            .read(
+                              thinkingExpandedProvider(thinkingKey).notifier,
+                            )
+                            .state =
+                        !expanded;
                   },
                 ),
               ),
+            if (widget.messages.isEmpty &&
+                widget.state.cards.isEmpty &&
+                !showThinking)
+              _EmptyBattleState(mode: widget.mode),
             ...widget.state.cards.map(
               (card) => Padding(
                 padding: const EdgeInsets.only(top: 12),
@@ -112,3 +121,78 @@ class _BattleCanvasState extends State<BattleCanvas> {
   }
 }
 
+/// 对话还没有任何内容时的空白态：每个模式三行引文 + 专属图标。
+///
+/// 图标与文字颜色跟随当前模式（主色 / 弱化色），内容居中靠左偏上展示。
+class _EmptyBattleState extends StatelessWidget {
+  const _EmptyBattleState({required this.mode});
+
+  final ModeTheme mode;
+
+  static ({IconData icon, String line1, String line2, String line3}) _for(
+    BattleView view,
+  ) {
+    switch (view) {
+      case BattleView.love:
+        return (
+          icon: Icons.favorite_rounded,
+          line1: '靠近一点，慢慢说。',
+          line2: '我听见的，不只是你的话。',
+          line3: 'love soft.',
+        );
+      case BattleView.right:
+        return (
+          icon: Icons.balance_rounded,
+          line1: '剥离情绪，只看事实。',
+          line2: '放心，只偏袒真相。',
+          line3: 'love hard.',
+        );
+      case BattleView.win:
+        return (
+          icon: Icons.emoji_events_rounded,
+          line1: '胜负落定之后。',
+          line2: '爱已经失去位置。',
+          line3: 'love gone.',
+        );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = _for(mode.view);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 160, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(c.icon, size: 90, color: mode.primary.withValues(alpha: 0.9)),
+          const SizedBox(height: 26),
+          Text(
+            c.line1,
+            style: TextStyle(
+              color: mode.text,
+              fontSize: 22,
+              fontWeight: mode.strongWeight,
+              height: 1.4,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            c.line2,
+            style: TextStyle(color: mode.textMuted, fontSize: 18, height: 1.6),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            c.line3,
+            style: TextStyle(
+              color: mode.primary,
+              fontSize: 16,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}

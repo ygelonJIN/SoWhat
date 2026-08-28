@@ -150,8 +150,13 @@ class MemoryGenerationService {
     required String response,
     required List<GenerationCard> cards,
   }) {
-    final text = _stripFences(response.trim());
-    final dynamic decoded = jsonDecode(text);
+    final text = _normalizeJson(_stripFences(response.trim()));
+    final dynamic decoded;
+    try {
+      decoded = jsonDecode(text);
+    } catch (_) {
+      throw const FormatException('记忆生成响应不是有效 JSON，可能被截断。');
+    }
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException('记忆生成响应不是 JSON 对象');
     }
@@ -307,6 +312,11 @@ class MemoryGenerationService {
   String _stripFences(String text) {
     final match = RegExp(r'^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$').firstMatch(text);
     return match == null ? text : match.group(1)!;
+  }
+
+  /// 容错：AI 偶尔会把 JSON 的英文大括号打成中文全角 ｛｝，先归一化再解析。
+  String _normalizeJson(String text) {
+    return text.replaceAll('｛', '{').replaceAll('｝', '}');
   }
 }
 

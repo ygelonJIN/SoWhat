@@ -108,8 +108,8 @@ class ImageFanGalleryState extends State<ImageFanGallery>
   Widget _buildFan(ModeTheme mode, double t) {
     final count = widget.paths.length;
 
-    // 最小收起态再大一点，仍保持“攥在手里”的小扇面。
-    const collapsedW = 64.0, collapsedH = 82.0;
+    // 最小收起态：比之前再紧凑一点，仍是“攥在手里”的小扇面。
+    const collapsedW = 56.0, collapsedH = 72.0;
     const peekedW = 112.0, peekedH = 142.0;
     final cardW = collapsedW + (peekedW - collapsedW) * t;
     final cardH = collapsedH + (peekedH - collapsedH) * t;
@@ -184,8 +184,10 @@ class ImageFanGalleryState extends State<ImageFanGallery>
                   final indexOffset = i - mid;
                   final normalized = indexOffset / denom;
                   final fanAngle = normalized * halfSpread;
-                  final lift = (1 - (normalized.abs() * 0.12).clamp(0.0, 0.12)) * t * 3;
-                  final translateY = (1 - t) * (indexOffset.abs() * 0.28) - lift;
+                  final lift =
+                      (1 - (normalized.abs() * 0.12).clamp(0.0, 0.12)) * t * 3;
+                  final translateY =
+                      (1 - t) * (indexOffset.abs() * 0.28) - lift;
                   final scaleFactor = 0.96 + t * 0.04;
 
                   return Transform.translate(
@@ -226,10 +228,8 @@ class ImageFanGalleryState extends State<ImageFanGallery>
       barrierLabel: '关闭大图',
       barrierColor: Colors.black.withValues(alpha: 0.94),
       transitionDuration: const Duration(milliseconds: 220),
-      pageBuilder: (context, _, __) => _FullScreenViewer(
-        paths: widget.paths,
-        initialIndex: index,
-      ),
+      pageBuilder: (context, _, __) =>
+          _FullScreenViewer(paths: widget.paths, initialIndex: index),
       transitionBuilder: (context, animation, _, child) => FadeTransition(
         opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
         child: child,
@@ -290,10 +290,7 @@ class _FanCard extends StatelessWidget {
             errorBuilder: (_, _, _) => Container(
               color: mode.surface.withValues(alpha: 0.6),
               alignment: Alignment.center,
-              child: Icon(
-                Icons.broken_image_outlined,
-                color: mode.textMuted,
-              ),
+              child: Icon(Icons.broken_image_outlined, color: mode.textMuted),
             ),
           ),
         ),
@@ -303,10 +300,7 @@ class _FanCard extends StatelessWidget {
 }
 
 class _FullScreenViewer extends StatefulWidget {
-  const _FullScreenViewer({
-    required this.paths,
-    required this.initialIndex,
-  });
+  const _FullScreenViewer({required this.paths, required this.initialIndex});
 
   final List<String> paths;
   final int initialIndex;
@@ -316,8 +310,9 @@ class _FullScreenViewer extends StatefulWidget {
 }
 
 class _FullScreenViewerState extends State<_FullScreenViewer> {
-  late final PageController _pageController =
-      PageController(initialPage: widget.initialIndex);
+  late final PageController _pageController = PageController(
+    initialPage: widget.initialIndex,
+  );
   late int _index = widget.initialIndex;
   double _dragDy = 0;
 

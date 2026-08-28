@@ -21,7 +21,7 @@ String _mimeTypeForPath(String path) {
 
 class DriftAppRepository implements AppRepository {
   DriftAppRepository({AppDatabase? database})
-      : _db = database ?? AppDatabase.defaults();
+    : _db = database ?? AppDatabase.defaults();
 
   final AppDatabase _db;
   static const _secureStorage = FlutterSecureStorage();
@@ -39,21 +39,12 @@ class DriftAppRepository implements AppRepository {
     try {
       await _db.customSelect('SELECT 1').get();
       await _migrateSchema();
-      final rows =
-          await _db.customSelect('SELECT COUNT(*) AS c FROM cases').get();
-      final count = rows.first.data['c'] as int;
-      if (count == 0) await _seedDemo();
     } on SqliteException catch (e, st) {
       final msg = e.message;
       debugPrint('[DriftAppRepository] SqliteException: $msg\n$st');
       if (msg.contains('no such table') || msg.contains('no such column')) {
         await _repairMissingTables();
         await _migrateSchema();
-        // retry once
-        final rows =
-            await _db.customSelect('SELECT COUNT(*) AS c FROM cases').get();
-        final count = rows.first.data['c'] as int;
-        if (count == 0) await _seedDemo();
         return;
       }
       rethrow;
@@ -67,7 +58,9 @@ class DriftAppRepository implements AppRepository {
     final tableColumns = <String, Set<String>>{};
     for (final table in ['cases', 'analyses', 'battle_states']) {
       final rows = await _db.customSelect('PRAGMA table_info($table)').get();
-      tableColumns[table] = rows.map((row) => row.data['name'] as String).toSet();
+      tableColumns[table] = rows
+          .map((row) => row.data['name'] as String)
+          .toSet();
     }
 
     if (!tableColumns['cases']!.contains('memory_finalized_at')) {
@@ -94,13 +87,19 @@ class DriftAppRepository implements AppRepository {
     final battleColumns = tableColumns['battle_states']!;
     if (battleColumns.contains('conversation_id') &&
         battleColumns.contains('view')) {
-      final tableSql = await _db.customSelect(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'battle_states'",
-      ).get();
-      final sql = tableSql.isEmpty ? '' : tableSql.first.data['sql']?.toString() ?? '';
+      final tableSql = await _db
+          .customSelect(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'battle_states'",
+          )
+          .get();
+      final sql = tableSql.isEmpty
+          ? ''
+          : tableSql.first.data['sql']?.toString() ?? '';
       if (sql.contains('conversation_id TEXT PRIMARY KEY')) {
         await _db.transaction(() async {
-          await _db.customStatement('ALTER TABLE battle_states RENAME TO battle_states_legacy');
+          await _db.customStatement(
+            'ALTER TABLE battle_states RENAME TO battle_states_legacy',
+          );
           await _db.customStatement('''
             CREATE TABLE battle_states (
               conversation_id TEXT NOT NULL,
@@ -151,10 +150,52 @@ class DriftAppRepository implements AppRepository {
         "ALTER TABLE battle_states ADD COLUMN thinking_active INTEGER NOT NULL DEFAULT 0",
       );
     }
+
+    // 迁移：memory_entries 结构自愈，对齐当前代码写入的列。
+    // 旧版本的库可能缺 source_gone，甚至把来源列建成了 sources_ison，
+    // 直接补列 / 改列名，避免 saveMemory 写入时 no such column 崩溃。
+    await _repairMemoryEntryColumns();
+  }
+
+  /// 对齐 memory_entries 与当前代码的列结构。
+  ///
+  /// - 旧库曾用 `sources_ison` 列名 → 改名 `sources_json`
+  /// - 缺 `source_gone` / `updated_at` / `is_deleted` → 补列
+  Future<void> _repairMemoryEntryColumns() async {
+    final memoryColumns =
+        (await _db.customSelect('PRAGMA table_info(memory_entries)').get())
+            .map((row) => row.data['name'] as String)
+            .toSet();
+    if (memoryColumns.contains('sources_ison') &&
+        !memoryColumns.contains('sources_json')) {
+      await _db.customStatement(
+        'ALTER TABLE memory_entries RENAME COLUMN sources_ison TO sources_json',
+      );
+      memoryColumns
+        ..remove('sources_ison')
+        ..add('sources_json');
+    }
+    if (!memoryColumns.contains('source_gone')) {
+      await _db.customStatement(
+        'ALTER TABLE memory_entries ADD COLUMN source_gone INTEGER NOT NULL DEFAULT 0',
+      );
+    }
+    if (!memoryColumns.contains('updated_at')) {
+      await _db.customStatement(
+        'ALTER TABLE memory_entries ADD COLUMN updated_at INTEGER',
+      );
+    }
+    if (!memoryColumns.contains('is_deleted')) {
+      await _db.customStatement(
+        'ALTER TABLE memory_entries ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0',
+      );
+    }
   }
 
   Future<void> _repairMissingTables() async {
-    debugPrint('[DriftAppRepository] repairing missing tables with IF NOT EXISTS');
+    debugPrint(
+      '[DriftAppRepository] repairing missing tables with IF NOT EXISTS',
+    );
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS cases (
         id TEXT PRIMARY KEY NOT NULL,
@@ -237,17 +278,11 @@ class DriftAppRepository implements AppRepository {
         sources_json TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL,
         updated_at INTEGER,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        source_gone INTEGER NOT NULL DEFAULT 0
       )
     ''');
-    final memoryColumns = (await _db.customSelect('PRAGMA table_info(memory_entries)').get())
-        .map((row) => row.data['name'] as String)
-        .toSet();
-    if (!memoryColumns.contains('source_gone')) {
-      await _db.customStatement(
-        'ALTER TABLE memory_entries ADD COLUMN source_gone INTEGER NOT NULL DEFAULT 0',
-      );
-    }
+    await _repairMemoryEntryColumns();
     await _db.customStatement('''
       CREATE TABLE IF NOT EXISTS ai_configs (
         id INTEGER PRIMARY KEY NOT NULL,
@@ -259,119 +294,6 @@ class DriftAppRepository implements AppRepository {
         enabled INTEGER NOT NULL DEFAULT 0
       )
     ''');
-  }
-
-  Future<void> _seedDemo() async {
-    final now = DateTime.now();
-    const convId = 'current-conversation';
-    final messages = [
-      Message(
-        conversationId: convId,
-        sequence: 1,
-        createdAt: now.subtract(const Duration(minutes: 40)),
-        party: Party.b,
-        type: MessageType.text,
-        content: '你昨天为什么又不回我消息？我等了你一晚上。',
-      ),
-      Message(
-        conversationId: convId,
-        sequence: 2,
-        createdAt: now.subtract(const Duration(minutes: 38)),
-        party: Party.a,
-        type: MessageType.text,
-        content: '我昨天加班到很晚，手机没电了，真的不是故意不回。',
-      ),
-      Message(
-        conversationId: convId,
-        sequence: 3,
-        createdAt: now.subtract(const Duration(minutes: 36)),
-        party: Party.b,
-        type: MessageType.text,
-        content: '你每次都这么说。上次出差失联两天，这次又是手机没电。',
-      ),
-      Message(
-        conversationId: convId,
-        sequence: 4,
-        createdAt: now.subtract(const Duration(minutes: 34)),
-        party: Party.a,
-        type: MessageType.text,
-        content: '上次出差是真的在飞机上，这次真的是没电。你要我怎么证明？',
-      ),
-      Message(
-        conversationId: convId,
-        sequence: 5,
-        createdAt: now.subtract(const Duration(minutes: 32)),
-        party: Party.b,
-        type: MessageType.text,
-        content: '我不是要你证明，我只是希望你在乎我的感受。等一晚上的感觉很难受。',
-      ),
-      Message(
-        conversationId: convId,
-        sequence: 6,
-        createdAt: now.subtract(const Duration(minutes: 30)),
-        party: Party.a,
-        type: MessageType.text,
-        content: '我知道了……对不起，以后加班前我先跟你说一声。',
-      ),
-    ];
-    await _db.customStatement(
-      'INSERT OR REPLACE INTO cases (id, title, created_at, pinned_at, background, memory_finalized_at, is_imported, last_view) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        convId,
-        null,
-        now.subtract(const Duration(minutes: 40)).millisecondsSinceEpoch,
-        null,
-        null,
-        BattleView.love.index,
-      ],
-    );
-    for (final m in messages) {
-      final row = cv.messageToRow(m);
-      await _db.customStatement(
-        'INSERT OR REPLACE INTO messages (id, conversation_id, sequence, created_at, party, type, content, asset_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-        [
-          row['id'] as String,
-          row['conversation_id'] as String,
-          row['sequence'] as int,
-          row['created_at'] as int,
-          row['party'] as int,
-          row['type'] as int,
-          row['content'] as String,
-          row['asset_path'] as String?,
-        ],
-      );
-    }
-    final battle = BattleState.initial();
-    final brow = cv.battleStateToRow(convId, battle);
-    await _db.customStatement(
-      'INSERT OR REPLACE INTO battle_states (conversation_id, view, user_score, partner_score, user_hp, partner_hp, user_love, partner_love, justice_balance, headline, cards_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [
-        brow['conversation_id'] as String,
-        brow['view'] as int,
-        brow['user_score'] as double,
-        brow['partner_score'] as double,
-        brow['user_hp'] as double,
-        brow['partner_hp'] as double,
-        brow['user_love'] as double,
-        brow['partner_love'] as double,
-        brow['justice_balance'] as double,
-        brow['headline'] as String,
-        brow['cards_json'] as String,
-        brow['updated_at'] as int,
-      ],
-    );
-    final memRow = cv.memoryProfileToRow(MemoryProfile.empty());
-    await _db.customStatement(
-      'INSERT OR REPLACE INTO memory_profiles (id, user_summary, partner_summary, relationship_summary, growth_summary, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-      [
-        memRow['id'] as String,
-        memRow['user_summary'] as String?,
-        memRow['partner_summary'] as String?,
-        memRow['relationship_summary'] as String?,
-        memRow['growth_summary'] as String?,
-        memRow['updated_at'] as int,
-      ],
-    );
   }
 
   Future<List<Case>> _loadCases() async {
@@ -399,11 +321,17 @@ class DriftAppRepository implements AppRepository {
     return rows.map((r) => cv.rowToAnalysis(r.data)).toList();
   }
 
-  Future<BattleState> _loadBattle(String conversationId, BattleView view) async {
+  Future<BattleState> _loadBattle(
+    String conversationId,
+    BattleView view,
+  ) async {
     final rows = await _db
         .customSelect(
           'SELECT * FROM battle_states WHERE conversation_id = ? AND view = ?',
-          variables: [Variable<String>(conversationId), Variable<int>(view.index)],
+          variables: [
+            Variable<String>(conversationId),
+            Variable<int>(view.index),
+          ],
         )
         .get();
     if (rows.isEmpty) return BattleState.initial(view);
@@ -411,7 +339,9 @@ class DriftAppRepository implements AppRepository {
   }
 
   Future<MemoryProfile> _loadMemory() async {
-    final prow = await _db.customSelect('SELECT * FROM memory_profiles LIMIT 1').get();
+    final prow = await _db
+        .customSelect('SELECT * FROM memory_profiles LIMIT 1')
+        .get();
     final erows = await _db.customSelect('SELECT * FROM memory_entries').get();
     final entries = erows.map((r) => cv.rowToMemoryEntry(r.data)).toList();
     if (prow.isEmpty) return MemoryProfile.empty().copyWith(entries: entries);
@@ -428,12 +358,16 @@ class DriftAppRepository implements AppRepository {
   }
 
   Future<List<Asset>> _loadAssets() async {
-    final rows = await _db.customSelect('SELECT * FROM assets ORDER BY created_at DESC').get();
+    final rows = await _db
+        .customSelect('SELECT * FROM assets ORDER BY created_at DESC')
+        .get();
     return rows.map((row) => cv.rowToAsset(row.data)).toList();
   }
 
   Future<AiConfig> _loadAiConfig() async {
-    final rows = await _db.customSelect('SELECT * FROM ai_configs WHERE id = 1').get();
+    final rows = await _db
+        .customSelect('SELECT * FROM ai_configs WHERE id = 1')
+        .get();
     if (rows.isEmpty) return const AiConfig();
     final config = cv.rowToAiConfig(rows.first.data);
     var key = await _secureStorage.read(key: _apiKeyStorageKey) ?? '';
@@ -450,7 +384,8 @@ class DriftAppRepository implements AppRepository {
   }
 
   void _emitCases(List<Case> cases) {
-    if (!_caseController.isClosed) _caseController.add(List.unmodifiable(cases));
+    if (!_caseController.isClosed)
+      _caseController.add(List.unmodifiable(cases));
   }
 
   void _emitMessages(String conversationId, List<Message> messages) {
@@ -492,10 +427,12 @@ class DriftAppRepository implements AppRepository {
   @override
   Future<Asset?> assetByPath(String path) async {
     await _ensureReady();
-    final rows = await _db.customSelect(
-      'SELECT * FROM assets WHERE path = ? LIMIT 1',
-      variables: [Variable<String>(path)],
-    ).get();
+    final rows = await _db
+        .customSelect(
+          'SELECT * FROM assets WHERE path = ? LIMIT 1',
+          variables: [Variable<String>(path)],
+        )
+        .get();
     return rows.isEmpty ? null : cv.rowToAsset(rows.first.data);
   }
 
@@ -505,7 +442,14 @@ class DriftAppRepository implements AppRepository {
     final row = cv.assetToRow(asset);
     await _db.customStatement(
       'INSERT OR REPLACE INTO assets (id, path, title, created_at, size_bytes, mime_type) VALUES (?, ?, ?, ?, ?, ?)',
-      [row['id'], row['path'], row['title'], row['created_at'], row['size_bytes'], row['mime_type']],
+      [
+        row['id'],
+        row['path'],
+        row['title'],
+        row['created_at'],
+        row['size_bytes'],
+        row['mime_type'],
+      ],
     );
     _emitAssets();
   }
@@ -513,7 +457,10 @@ class DriftAppRepository implements AppRepository {
   @override
   Future<void> renameAsset(String assetId, String title) async {
     await _ensureReady();
-    await _db.customStatement('UPDATE assets SET title = ? WHERE id = ?', [title.trim(), assetId]);
+    await _db.customStatement('UPDATE assets SET title = ? WHERE id = ?', [
+      title.trim(),
+      assetId,
+    ]);
     _emitAssets();
   }
 
@@ -521,7 +468,12 @@ class DriftAppRepository implements AppRepository {
   Future<void> deleteAssets(List<String> assetIds) async {
     await _ensureReady();
     for (final id in assetIds) {
-      final rows = await _db.customSelect('SELECT path FROM assets WHERE id = ?', variables: [Variable<String>(id)]).get();
+      final rows = await _db
+          .customSelect(
+            'SELECT path FROM assets WHERE id = ?',
+            variables: [Variable<String>(id)],
+          )
+          .get();
       if (rows.isNotEmpty) {
         final path = rows.first.data['path'] as String;
         final file = File(path);
@@ -562,7 +514,10 @@ class DriftAppRepository implements AppRepository {
   }
 
   @override
-  Stream<BattleState> watchBattleState(String conversationId, BattleView view) async* {
+  Stream<BattleState> watchBattleState(
+    String conversationId,
+    BattleView view,
+  ) async* {
     await _ensureReady();
     final controller = _battleControllers.putIfAbsent(
       conversationId,
@@ -595,11 +550,6 @@ class DriftAppRepository implements AppRepository {
       }
       return DateTime.now();
     });
-  }
-
-  @override
-  Future<void> seedDemoData() async {
-    await _ensureReady();
   }
 
   @override
@@ -653,13 +603,17 @@ class DriftAppRepository implements AppRepository {
   @override
   Future<void> deleteEmptyConversation(String conversationId) async {
     await _ensureReady();
-    final rows = await _db.customSelect(
-      'SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?',
-      variables: [Variable<String>(conversationId)],
-    ).get();
+    final rows = await _db
+        .customSelect(
+          'SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?',
+          variables: [Variable<String>(conversationId)],
+        )
+        .get();
     final count = (rows.first.data['count'] as int?) ?? 0;
     if (count == 0) {
-      await _db.customStatement('DELETE FROM cases WHERE id = ?', [conversationId]);
+      await _db.customStatement('DELETE FROM cases WHERE id = ?', [
+        conversationId,
+      ]);
       _emitCases(await _loadCases());
     }
   }
@@ -667,13 +621,17 @@ class DriftAppRepository implements AppRepository {
   @override
   Future<bool> cleanupEmptyConversation(String conversationId) async {
     await _ensureReady();
-    final rows = await _db.customSelect(
-      'SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?',
-      variables: [Variable<String>(conversationId)],
-    ).get();
+    final rows = await _db
+        .customSelect(
+          'SELECT COUNT(*) AS count FROM messages WHERE conversation_id = ?',
+          variables: [Variable<String>(conversationId)],
+        )
+        .get();
     final count = (rows.first.data['count'] as int?) ?? 0;
     if (count == 0) {
-      await _db.customStatement('DELETE FROM cases WHERE id = ?', [conversationId]);
+      await _db.customStatement('DELETE FROM cases WHERE id = ?', [
+        conversationId,
+      ]);
       _emitCases(await _loadCases());
       return false;
     }
@@ -683,12 +641,19 @@ class DriftAppRepository implements AppRepository {
   @override
   Future<void> deleteCase(String conversationId) async {
     await _ensureReady();
-    await _db.customStatement('DELETE FROM cases WHERE id = ?', [conversationId]);
-    final imageRows = await _db.customSelect(
-      'SELECT asset_path FROM messages WHERE conversation_id = ? AND asset_path IS NOT NULL',
-      variables: [Variable<String>(conversationId)],
-    ).get();
-    await _db.customStatement('DELETE FROM messages WHERE conversation_id = ?', [conversationId]);
+    await _db.customStatement('DELETE FROM cases WHERE id = ?', [
+      conversationId,
+    ]);
+    final imageRows = await _db
+        .customSelect(
+          'SELECT asset_path FROM messages WHERE conversation_id = ? AND asset_path IS NOT NULL',
+          variables: [Variable<String>(conversationId)],
+        )
+        .get();
+    await _db.customStatement(
+      'DELETE FROM messages WHERE conversation_id = ?',
+      [conversationId],
+    );
     for (final row in imageRows) {
       final path = row.data['asset_path'] as String?;
       if (path == null || path.isEmpty) continue;
@@ -699,12 +664,20 @@ class DriftAppRepository implements AppRepository {
         // 资产清理失败不阻止删除聊天记录。
       }
     }
-    await _db.customStatement('DELETE FROM analyses WHERE conversation_id = ?', [conversationId]);
-    await _db.customStatement('DELETE FROM battle_states WHERE conversation_id = ?', [conversationId]);
+    await _db.customStatement(
+      'DELETE FROM analyses WHERE conversation_id = ?',
+      [conversationId],
+    );
+    await _db.customStatement(
+      'DELETE FROM battle_states WHERE conversation_id = ?',
+      [conversationId],
+    );
     final erows = await _db.customSelect('SELECT * FROM memory_entries').get();
     for (final row in erows) {
       final entry = cv.rowToMemoryEntry(row.data);
-      if (entry.sources.any((source) => source.conversationId == conversationId)) {
+      if (entry.sources.any(
+        (source) => source.conversationId == conversationId,
+      )) {
         await _db.customStatement(
           'UPDATE memory_entries SET source_gone = 1 WHERE id = ?',
           [entry.id],
@@ -723,8 +696,13 @@ class DriftAppRepository implements AppRepository {
     final cases = await _loadCases();
     final idx = cases.indexWhere((c) => c.id == caseId);
     if (idx < 0) throw StateError('未找到对话 $caseId');
-    final updated = cases[idx].copyWith(pinnedAt: pinned ? DateTime.now() : null);
-    await _db.customStatement('UPDATE cases SET pinned_at = ? WHERE id = ?', [updated.pinnedAt?.millisecondsSinceEpoch, caseId]);
+    final updated = cases[idx].copyWith(
+      pinnedAt: pinned ? DateTime.now() : null,
+    );
+    await _db.customStatement('UPDATE cases SET pinned_at = ? WHERE id = ?', [
+      updated.pinnedAt?.millisecondsSinceEpoch,
+      caseId,
+    ]);
     final fresh = await _loadCases();
     _emitCases(fresh);
     return updated;
@@ -737,7 +715,10 @@ class DriftAppRepository implements AppRepository {
     final idx = cases.indexWhere((c) => c.id == caseId);
     if (idx < 0) throw StateError('未找到对话 $caseId');
     final updated = cases[idx].copyWith(title: title);
-    await _db.customStatement('UPDATE cases SET title = ? WHERE id = ?', [title, caseId]);
+    await _db.customStatement('UPDATE cases SET title = ? WHERE id = ?', [
+      title,
+      caseId,
+    ]);
     final fresh = await _loadCases();
     _emitCases(fresh);
     return updated;
@@ -750,14 +731,18 @@ class DriftAppRepository implements AppRepository {
     for (final r in erows) {
       final entry = cv.rowToMemoryEntry(r.data);
       if (entry.sources.any((s) => s.conversationId == conversationId)) {
-        await _db.customStatement('DELETE FROM memory_entries WHERE id = ?', [entry.id]);
+        await _db.customStatement('DELETE FROM memory_entries WHERE id = ?', [
+          entry.id,
+        ]);
       }
     }
     _emitMemory(await _loadMemory());
   }
 
   @override
-  Future<void> finalizeConversationsForMemory(List<String> conversationIds) async {
+  Future<void> finalizeConversationsForMemory(
+    List<String> conversationIds,
+  ) async {
     if (conversationIds.isEmpty) return;
     await _ensureReady();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -776,7 +761,10 @@ class DriftAppRepository implements AppRepository {
     await _ensureReady();
     final now = DateTime.now().millisecondsSinceEpoch;
     for (final id in analysisIds) {
-      await _db.customStatement('UPDATE analyses SET memory_processed_at = ? WHERE id = ? AND memory_processed_at IS NULL', [now, id]);
+      await _db.customStatement(
+        'UPDATE analyses SET memory_processed_at = ? WHERE id = ? AND memory_processed_at IS NULL',
+        [now, id],
+      );
     }
     for (final convId in _analysisControllers.keys.toList()) {
       _emitAnalyses(convId, await _loadAnalyses(convId));
@@ -786,7 +774,12 @@ class DriftAppRepository implements AppRepository {
   @override
   Future<int> nextMessageSequence(String conversationId) async {
     await _ensureReady();
-    final rows = await _db.customSelect('SELECT MAX(sequence) AS m FROM messages WHERE conversation_id = ?', variables: [Variable<String>(conversationId)]).get();
+    final rows = await _db
+        .customSelect(
+          'SELECT MAX(sequence) AS m FROM messages WHERE conversation_id = ?',
+          variables: [Variable<String>(conversationId)],
+        )
+        .get();
     final m = rows.first.data['m'] as int?;
     return (m ?? 0) + 1;
   }
@@ -797,17 +790,32 @@ class DriftAppRepository implements AppRepository {
     final row = cv.messageToRow(message);
     await _db.customStatement(
       'INSERT OR REPLACE INTO messages (id, conversation_id, sequence, created_at, party, type, content, asset_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [row['id'] as String, row['conversation_id'] as String, row['sequence'] as int, row['created_at'] as int, row['party'] as int, row['type'] as int, row['content'] as String, row['asset_path'] as String?],
+      [
+        row['id'] as String,
+        row['conversation_id'] as String,
+        row['sequence'] as int,
+        row['created_at'] as int,
+        row['party'] as int,
+        row['type'] as int,
+        row['content'] as String,
+        row['asset_path'] as String?,
+      ],
     );
-    _emitMessages(message.conversationId, await _loadMessages(message.conversationId));
+    _emitMessages(
+      message.conversationId,
+      await _loadMessages(message.conversationId),
+    );
     if (message.assetPath != null) {
       final file = File(message.assetPath!);
-      if (await file.exists() && await assetByPath(message.assetPath!) == null) {
-        await saveAsset(Asset(
-          path: message.assetPath!,
-          sizeBytes: await file.length(),
-          mimeType: _mimeTypeForPath(message.assetPath!),
-        ));
+      if (await file.exists() &&
+          await assetByPath(message.assetPath!) == null) {
+        await saveAsset(
+          Asset(
+            path: message.assetPath!,
+            sizeBytes: await file.length(),
+            mimeType: _mimeTypeForPath(message.assetPath!),
+          ),
+        );
       }
     }
   }
@@ -815,7 +823,10 @@ class DriftAppRepository implements AppRepository {
   @override
   Future<void> deleteMessage(String conversationId, int sequence) async {
     await _ensureReady();
-    await _db.customStatement('DELETE FROM messages WHERE conversation_id = ? AND sequence = ?', [conversationId, sequence]);
+    await _db.customStatement(
+      'DELETE FROM messages WHERE conversation_id = ? AND sequence = ?',
+      [conversationId, sequence],
+    );
     _emitMessages(conversationId, await _loadMessages(conversationId));
   }
 
@@ -825,20 +836,58 @@ class DriftAppRepository implements AppRepository {
     final row = cv.analysisToRow(analysis);
     await _db.customStatement(
       'INSERT OR REPLACE INTO analyses (id, conversation_id, view, channel, model_name, content, cards_json, created_at, token_count, duration_micros, turn_id, memory_processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      [row['id'] as String, row['conversation_id'] as String, row['view'] as int, row['channel'] as int, row['model_name'] as String?, row['content'] as String, row['cards_json'] as String, row['created_at'] as int, row['token_count'] as int, row['duration_micros'] as int?, row['turn_id'] as String? ?? '', row['memory_processed_at'] as int?],
+      [
+        row['id'] as String,
+        row['conversation_id'] as String,
+        row['view'] as int,
+        row['channel'] as int,
+        row['model_name'] as String?,
+        row['content'] as String,
+        row['cards_json'] as String,
+        row['created_at'] as int,
+        row['token_count'] as int,
+        row['duration_micros'] as int?,
+        row['turn_id'] as String? ?? '',
+        row['memory_processed_at'] as int?,
+      ],
     );
-    _emitAnalyses(analysis.conversationId, await _loadAnalyses(analysis.conversationId));
+    _emitAnalyses(
+      analysis.conversationId,
+      await _loadAnalyses(analysis.conversationId),
+    );
   }
 
   @override
   Future<void> saveMemory(MemoryProfile memory) async {
     await _ensureReady();
     final row = cv.memoryProfileToRow(memory);
-    await _db.customStatement('INSERT OR REPLACE INTO memory_profiles (id, user_summary, partner_summary, relationship_summary, growth_summary, updated_at) VALUES (?, ?, ?, ?, ?, ?)', [row['id'] as String, row['user_summary'] as String?, row['partner_summary'] as String?, row['relationship_summary'] as String?, row['growth_summary'] as String?, row['updated_at'] as int]);
+    await _db.customStatement(
+      'INSERT OR REPLACE INTO memory_profiles (id, user_summary, partner_summary, relationship_summary, growth_summary, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        row['id'] as String,
+        row['user_summary'] as String?,
+        row['partner_summary'] as String?,
+        row['relationship_summary'] as String?,
+        row['growth_summary'] as String?,
+        row['updated_at'] as int,
+      ],
+    );
     await _db.customStatement('DELETE FROM memory_entries');
     for (final e in memory.entries) {
       final erow = cv.memoryEntryToRow(e);
-      await _db.customStatement('INSERT OR REPLACE INTO memory_entries (id, kind, summary, sources_json, created_at, updated_at, is_deleted, source_gone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [erow['id'] as String, erow['kind'] as int, erow['summary'] as String, erow['sources_json'] as String, erow['created_at'] as int, erow['updated_at'] as int?, erow['is_deleted'] as int, erow['source_gone'] as int]);
+      await _db.customStatement(
+        'INSERT OR REPLACE INTO memory_entries (id, kind, summary, sources_json, created_at, updated_at, is_deleted, source_gone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          erow['id'] as String,
+          erow['kind'] as int,
+          erow['summary'] as String,
+          erow['sources_json'] as String,
+          erow['created_at'] as int,
+          erow['updated_at'] as int?,
+          erow['is_deleted'] as int,
+          erow['source_gone'] as int,
+        ],
+      );
     }
     _emitMemory(await _loadMemory());
   }
@@ -852,23 +901,96 @@ class DriftAppRepository implements AppRepository {
     } else {
       await _secureStorage.write(key: _apiKeyStorageKey, value: key);
     }
-    final row = cv.aiConfigToRow(config.copyWith(apiKey: '', enabled: key.isNotEmpty));
-    await _db.customStatement('INSERT OR REPLACE INTO ai_configs (id, provider, protocol, api_key, model, base_url, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)', [row['id'] as int, row['provider'] as int, row['protocol'] as int, '', row['model'] as String, row['base_url'] as String, row['enabled'] as int]);
+    final row = cv.aiConfigToRow(
+      config.copyWith(apiKey: '', enabled: key.isNotEmpty),
+    );
+    await _db.customStatement(
+      'INSERT OR REPLACE INTO ai_configs (id, provider, protocol, api_key, model, base_url, enabled) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        row['id'] as int,
+        row['provider'] as int,
+        row['protocol'] as int,
+        '',
+        row['model'] as String,
+        row['base_url'] as String,
+        row['enabled'] as int,
+      ],
+    );
     _emitAiConfig(config.copyWith(apiKey: key, enabled: key.isNotEmpty));
+  }
+
+  @override
+  Future<void> wipeUserData() async {
+    await _ensureReady();
+    // 先收集所有图片文件路径，再清库，最后删文件。
+    final messageImageRows = await _db
+        .customSelect(
+          'SELECT asset_path FROM messages WHERE asset_path IS NOT NULL',
+        )
+        .get();
+    final assetRows = await _db.customSelect('SELECT path FROM assets').get();
+    final paths = <String>{};
+    for (final row in messageImageRows) {
+      final path = row.data['asset_path'];
+      if (path is String && path.isNotEmpty) paths.add(path);
+    }
+    for (final row in assetRows) {
+      final path = row.data['path'];
+      if (path is String && path.isNotEmpty) paths.add(path);
+    }
+
+    await _db.customStatement('DELETE FROM battle_states');
+    await _db.customStatement('DELETE FROM analyses');
+    await _db.customStatement('DELETE FROM messages');
+    await _db.customStatement('DELETE FROM cases');
+    await _db.customStatement('DELETE FROM memory_entries');
+    await _db.customStatement('DELETE FROM memory_profiles');
+    await _db.customStatement('DELETE FROM assets');
+    // ai_configs 保留（API Key 属于配置，不是用户内容）。
+
+    for (final path in paths) {
+      try {
+        final file = File(path);
+        if (await file.exists()) await file.delete();
+      } catch (_) {
+        // 文件清理失败不阻塞清空。
+      }
+    }
+
+    _emitCases(await _loadCases());
+    _emitMemory(await _loadMemory());
+    _emitAssets();
+    for (final controller in _messageControllers.values.toList()) {
+      controller.add(const []);
+    }
+    for (final controller in _analysisControllers.values.toList()) {
+      controller.add(const []);
+    }
+    for (final entry in _battleControllers.entries.toList()) {
+      _emitBattle(
+        entry.key,
+        await _loadBattle(entry.key, BattleView.values[0]),
+      );
+    }
   }
 
   @override
   Future<void> setBattleView(String conversationId, BattleView view) async {
     await _ensureReady();
-    await _db.customStatement(
-      'UPDATE cases SET last_view = ? WHERE id = ?',
-      [view.index, conversationId],
-    );
+    await _db.customStatement('UPDATE cases SET last_view = ? WHERE id = ?', [
+      view.index,
+      conversationId,
+    ]);
     // 检查该视角是否已有保存的分析卡片（之前运行过该视角分析）。
-    final rows = await _db.customSelect(
-      'SELECT * FROM battle_states WHERE conversation_id = ? AND view = ?',
-      variables: [Variable<String>(conversationId), Variable<int>(view.index)],
-    ).get();
+    final rows = await _db
+        .customSelect(
+          'SELECT * FROM battle_states WHERE conversation_id = ? AND view = ?',
+          variables: [
+            Variable<String>(conversationId),
+            Variable<int>(view.index),
+          ],
+        )
+        .get();
     if (rows.isNotEmpty) {
       // 已有 BattleState，直接发射现有状态（保留已有的分析卡片）。
       final existing = cv.rowToBattleState(rows.first.data);
@@ -879,7 +1001,20 @@ class DriftAppRepository implements AppRepository {
       final row = cv.battleStateToRow(conversationId, initial);
       await _db.customStatement(
         'INSERT INTO battle_states (conversation_id, view, user_score, partner_score, user_hp, partner_hp, user_love, partner_love, justice_balance, headline, cards_json, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [row['conversation_id'] as String, row['view'] as int, row['user_score'] as double, row['partner_score'] as double, row['user_hp'] as double, row['partner_hp'] as double, row['user_love'] as double, row['partner_love'] as double, row['justice_balance'] as double, row['headline'] as String, row['cards_json'] as String, row['updated_at'] as int],
+        [
+          row['conversation_id'] as String,
+          row['view'] as int,
+          row['user_score'] as double,
+          row['partner_score'] as double,
+          row['user_hp'] as double,
+          row['partner_hp'] as double,
+          row['user_love'] as double,
+          row['partner_love'] as double,
+          row['justice_balance'] as double,
+          row['headline'] as String,
+          row['cards_json'] as String,
+          row['updated_at'] as int,
+        ],
       );
       _emitBattle(conversationId, initial);
     }
@@ -952,10 +1087,15 @@ class DriftAppRepository implements AppRepository {
     bool thinkingActive = false,
   }) async {
     await _ensureReady();
-    final rows = await _db.customSelect(
-      'SELECT * FROM battle_states WHERE conversation_id = ? AND view = ?',
-      variables: [Variable<String>(conversationId), Variable<int>(view.index)],
-    ).get();
+    final rows = await _db
+        .customSelect(
+          'SELECT * FROM battle_states WHERE conversation_id = ? AND view = ?',
+          variables: [
+            Variable<String>(conversationId),
+            Variable<int>(view.index),
+          ],
+        )
+        .get();
     if (rows.isEmpty) return;
     final existing = cv.rowToBattleState(rows.first.data);
     final updated = existing.copyWith(

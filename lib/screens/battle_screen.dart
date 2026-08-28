@@ -17,8 +17,8 @@ import '../theme/mode_theme.dart';
 import '../utils/format.dart';
 import '../widgets/battle/battle_canvas.dart';
 import '../widgets/battle/image_fan_gallery.dart';
-import '../widgets/buttons/float_mode_button.dart';
 import '../widgets/buttons/pill_button.dart';
+import '../widgets/feedback/feedback.dart';
 import '../widgets/input/chat_composer.dart';
 import '../widgets/settings/settings_panel.dart';
 
@@ -107,8 +107,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   /// 当前打开的对话 id（设置页切换对话 / 新建对话时变化）。
   /// 首帧前可能尚未解析（provider 初始为 null），返回空串让界面先渲染空态，
   /// [ensureConversation] 完成后会自动重建。
-  String get _conversationId =>
-      ref.read(selectedConversationIdProvider) ?? '';
+  String get _conversationId => ref.read(selectedConversationIdProvider) ?? '';
 
   @override
   void initState() {
@@ -131,8 +130,10 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
       await actions.cleanupStaleEmptyConversations(keepConversationId: id);
       if (!mounted) return;
       _restoreConversationMode(_conversationId);
-    } catch (_) {
-      // 启动阶段失败不阻塞界面，后续交互时再重试。
+    } catch (e, st) {
+      // 启动阶段失败不阻塞界面，后续交互时再重试；但必须打到日志，
+      // 否则启动期数据库异常会表现为只转圈、终端无报错。
+      debugPrint('[BattleScreen] 启动对话初始化失败: $e\n$st');
     }
   }
 
@@ -153,10 +154,12 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     }
   }
 
-  void _dismissKeyboardFromCanvas() {
+  /// 点聊天空白处：收起键盘，若扇面处于放大态则同时缩回最小态。
+  void _dismissKeyboardAndCollapseFan() {
     if (_keyboardVisible) {
       FocusScope.of(context).unfocus();
     }
+    _collapseFan();
   }
 
   void _onFanPeekChanged(bool peeked) {
@@ -196,16 +199,20 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   void _openMemory() {
     FocusScope.of(context).unfocus();
     _collapseFan();
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const MemoryScreen()),
-    );
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const MemoryScreen()));
   }
 
   Future<void> _createNewConversation() async {
     try {
-      final caseItem = await ref
-          .read(repositoryActionsProvider)
-          .createConversation();
+      final actions = ref.read(repositoryActionsProvider);
+      // 先清掉当前打开的空白草稿对话（没有任何消息），避免「新建」时
+      // 上一个空白对话残留在历史记录里被反复累积。
+      if (_conversationId.isNotEmpty) {
+        await actions.cleanupEmptyConversation(_conversationId);
+      }
+      final caseItem = await actions.createConversation();
       ref.read(selectedConversationIdProvider.notifier).state = caseItem.id;
       _closeSettings();
     } catch (e, st) {
@@ -260,10 +267,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
       if (ref.read(selectedConversationIdProvider) != conversationId) return;
       if (caseItem != null) {
         ref.read(selectedBattleViewProvider.notifier).state = caseItem.lastView;
-        ref.read(repositoryActionsProvider).syncThinkingToView(
-          conversationId,
-          caseItem.lastView,
-        );
+        ref
+            .read(repositoryActionsProvider)
+            .syncThinkingToView(conversationId, caseItem.lastView);
       }
     } catch (_) {
       // 读取失败保持当前模式即可。
@@ -287,8 +293,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     if (text.isEmpty && !hasImages) return;
     try {
       // 允许并行分析：不再先取消上一轮分析。
-      ref.read(debugStatusProvider.notifier).state =
-          hasImages ? '发送文字 + ${_stagedImages.length} 张图片…' : '发送消息并触发分析…';
+      ref.read(debugStatusProvider.notifier).state = hasImages
+          ? '发送文字 + ${_stagedImages.length} 张图片…'
+          : '发送消息并触发分析…';
       if (text.isNotEmpty) {
         await ref
             .read(repositoryActionsProvider)
@@ -307,7 +314,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
           sizeBytes: await file.length(),
           mimeType: _mimeTypeFor(assetPath),
         );
-        final existingAsset = await ref.read(appRepositoryProvider).assetByPath(assetPath);
+        final existingAsset = await ref
+            .read(appRepositoryProvider)
+            .assetByPath(assetPath);
         await ref.read(appRepositoryProvider).saveAsset(existingAsset ?? asset);
         await ref
             .read(repositoryActionsProvider)
@@ -320,10 +329,10 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
             );
       }
       _messageController.clear();
-      setState(() => _stagedImages.clear());
+      // 发送后暂存图片仍保留在右上角扇面：切换其他模式后可直接再次发送
+      //（每个模式各自的分析），无需重新上传；想移除时点扇面展开后的 ✕。
       final analysisView = ref.read(selectedBattleViewProvider);
       unawaited(_runAnalysis(view: analysisView));
-      _scrollToBottom();
     } catch (_) {
       _showError('发送失败，请稍后重试。');
     }
@@ -404,11 +413,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     ref.read(debugStatusProvider.notifier).state = '正在准备分析…';
     try {
       final turnId = DateTime.now().millisecondsSinceEpoch.toString();
-      final skipped = await ref.read(repositoryActionsProvider).runAnalysis(
-        conversationId,
-        turnId: turnId,
-        analysisView: view,
-      );
+      final skipped = await ref
+          .read(repositoryActionsProvider)
+          .runAnalysis(conversationId, turnId: turnId, analysisView: view);
       if (skipped > 0 &&
           ref.read(selectedConversationIdProvider) == conversationId &&
           ref.read(selectedBattleViewProvider) == view) {
@@ -427,27 +434,15 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   }
 
   void _showThemedError(String message, ModeTheme mode) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: TextStyle(color: mode.onPrimary)),
-        backgroundColor: mode.primary,
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 4),
-        shape: RoundedRectangleBorder(borderRadius: mode.chipRadius),
-        action: SnackBarAction(
-          label: '知道了',
-          textColor: mode.onPrimary,
-          onPressed: () {},
-        ),
-      ),
-    );
+    FeedbackDialog.error(context, mode, message);
   }
 
   Future<void> _selectView(BattleView view) async {
     if (view == ref.read(selectedBattleViewProvider)) return;
     ref.read(selectedBattleViewProvider.notifier).state = view;
-    ref.read(repositoryActionsProvider).syncThinkingToView(_conversationId, view);
+    ref
+        .read(repositoryActionsProvider)
+        .syncThinkingToView(_conversationId, view);
     try {
       await ref
           .read(repositoryActionsProvider)
@@ -459,32 +454,16 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
 
   void _showSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        behavior: SnackBarBehavior.floating,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    final mode = ModeThemes.of(ref.read(selectedBattleViewProvider));
+    FeedbackDialog.show(context, mode, message: message);
   }
 
   void _showError(String message, [Object? error, ModeTheme? viewMode]) {
     if (!mounted) return;
-    final mode = viewMode ?? ModeThemes.of(ref.read(selectedBattleViewProvider));
+    final mode =
+        viewMode ?? ModeThemes.of(ref.read(selectedBattleViewProvider));
     final detail = error == null ? message : '$message（$error）';
     _showThemedError(detail, mode);
-  }
-
-  void _scrollToBottom() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.animateTo(
-          _scrollController.position.maxScrollExtent,
-          duration: const Duration(milliseconds: 300),
-          curve: Curves.easeOutCubic,
-        );
-      }
-    });
   }
 
   // ─── 界面 ───────────────────────────────────────────────────────────────────
@@ -497,15 +476,15 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     if (conversationId == null) {
       return Scaffold(
         backgroundColor: mode.background,
-        body: Center(
-          child: CircularProgressIndicator(color: mode.primary),
-        ),
+        body: Center(child: CircularProgressIndicator(color: mode.primary)),
       );
     }
     final battleAsync = ref.watch(
       battleStateProvider((conversationId: conversationId, view: selectedView)),
     );
-    final messagesAsync = ref.watch(conversationMessagesProvider(conversationId));
+    final messagesAsync = ref.watch(
+      conversationMessagesProvider(conversationId),
+    );
     final isAnalyzing = ref.watch(
       isAnalyzingProvider('$conversationId:${selectedView.name}'),
     );
@@ -519,8 +498,19 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     });
 
     final messages = messagesAsync.valueOrNull ?? const [];
-    // 扇面展示的是「暂存的待发送图片」；发送后图片进入对话历史，扇面收起。
-    final screenshotPaths = List<String>.unmodifiable(_stagedImages);
+    // 扇面固定展示「本对话已发送 + 正在暂存」的全部图片：
+    // 已发送的截图随对话永久保留（切换模式仍共用同一批图），暂存的待发送图
+    // 附加在末尾，可随时用扇面展开后的 ✕ 移除（只移除暂存、不影响已发送）。
+    final sentImagePaths = <String>[
+      for (final m in messages)
+        if (m.isImageType && (m.assetPath?.isNotEmpty ?? false)) m.assetPath!,
+    ];
+    final seen = <String>{...sentImagePaths};
+    final screenshotPaths = List<String>.unmodifiable([
+      ...sentImagePaths,
+      for (final p in _stagedImages)
+        if (seen.add(p)) p,
+    ]);
 
     return Theme(
       data: mode.themeData,
@@ -621,7 +611,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
         Positioned.fill(
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
-            onTap: _dismissKeyboardFromCanvas,
+            onTap: _dismissKeyboardAndCollapseFan,
             child: BattleCanvas(
               state: battleState,
               messages: messages,
@@ -659,12 +649,16 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                     const SizedBox(height: 10),
                     Align(
                       alignment: Alignment.centerRight,
-                      child: ImageFanGallery(
-                        key: _fanGalleryKey,
-                        paths: screenshotPaths,
-                        mode: mode,
-                        onPeekChanged: _onFanPeekChanged,
-                        onRemove: _clearStagedImages,
+                      child: Padding(
+                        // 向右留出一点边距，让扇面整体往左移，不贴右缘。
+                        padding: const EdgeInsets.only(right: 10),
+                        child: ImageFanGallery(
+                          key: _fanGalleryKey,
+                          paths: screenshotPaths,
+                          mode: mode,
+                          onPeekChanged: _onFanPeekChanged,
+                          onRemove: _clearStagedImages,
+                        ),
                       ),
                     ),
                   ],
@@ -711,19 +705,13 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                     padding: const EdgeInsets.only(bottom: 10),
                     child: Align(
                       alignment: Alignment.centerRight,
-                      child: PillButton(
+                      child: _ModeMemoryBar(
                         mode: mode,
-                        icon: Icons.auto_stories_rounded,
-                        label: '记忆',
-                        highlight: true,
-                        onTap: _openMemory,
+                        selectedView: selectedView,
+                        onSelected: _selectView,
+                        onMemory: _openMemory,
                       ),
                     ),
-                  ),
-                  _FloatingModePicker(
-                    mode: mode,
-                    selectedView: selectedView,
-                    onSelected: _selectView,
                   ),
                   const SizedBox(height: 8),
                   ChatComposer(
@@ -785,43 +773,134 @@ class _FloatingTopChrome extends StatelessWidget {
   }
 }
 
-class _FloatingModePicker extends StatelessWidget {
-  const _FloatingModePicker({
+/// 底部操作条：一行摆放「记忆 + 当前模式」两个同尺寸主色按钮；点击模式按钮
+/// 向上展开另外两个模式（当前选中已显示在按钮上，不再重复展开），选中后收起。
+/// 展开选项沿用旧的分段按钮样式（当前模式的未选中描边胶囊）。
+/// 因父级 Column 底贴屏幕，展开内容整体向上顶开，不遮挡输入框。
+class _ModeMemoryBar extends StatefulWidget {
+  const _ModeMemoryBar({
     required this.mode,
     required this.selectedView,
     required this.onSelected,
+    required this.onMemory,
   });
 
   final ModeTheme mode;
   final BattleView selectedView;
   final ValueChanged<BattleView> onSelected;
+  final VoidCallback onMemory;
+
+  @override
+  State<_ModeMemoryBar> createState() => _ModeMemoryBarState();
+}
+
+class _ModeMemoryBarState extends State<_ModeMemoryBar> {
+  static const _views = [
+    BattleView.love,
+    BattleView.right,
+    BattleView.win,
+  ];
+
+  bool _expanded = false;
+
+  void _select(BattleView view) {
+    setState(() => _expanded = false);
+    widget.onSelected(view);
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.end,
-      children: [
-        FloatModeButton(
-          mode: mode,
-          label: '为爱',
-          selected: selectedView == BattleView.love,
-          onTap: () => onSelected(BattleView.love),
+    final selected = widget.selectedView;
+    // 展开时只显示「另外两个」模式：当前选中的已展示在触发按钮上。
+    final options = [
+      for (final v in _views)
+        if (v != selected) v,
+    ];
+
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.bottomCenter,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (_expanded) ...[
+            for (var i = 0; i < options.length; i++) ...[
+              if (i > 0) const SizedBox(height: 8),
+              _ModeOptionButton(
+                mode: widget.mode,
+                label: ModeThemes.of(options[i]).title,
+                onTap: () => _select(options[i]),
+              ),
+            ],
+            const SizedBox(height: 12),
+          ],
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              PillButton(
+                mode: widget.mode,
+                icon: Icons.auto_stories_rounded,
+                label: '记忆',
+                highlight: true,
+                onTap: widget.onMemory,
+              ),
+              const SizedBox(width: 10),
+              // 当前模式按钮与「记忆」同款同尺寸。
+              PillButton(
+                mode: widget.mode,
+                icon: Icons.unfold_more_rounded,
+                label: ModeThemes.of(selected).title,
+                highlight: true,
+                onTap: () => setState(() => _expanded = !_expanded),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 展开态单个模式选项：只显示「另外两个」模式，沿用旧分段按钮的未选中样式
+/// （当前模式的表面色 + 描边 + 弱化文字，不套用其它模式的主题配色）。
+class _ModeOptionButton extends StatelessWidget {
+  const _ModeOptionButton({
+    required this.mode,
+    required this.label,
+    required this.onTap,
+  });
+
+  final ModeTheme mode;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: mode.chipBackground,
+      shape: RoundedRectangleBorder(
+        borderRadius: mode.chipRadius,
+        side: BorderSide(color: mode.chipBorder.withValues(alpha: 0.55), width: 1),
+      ),
+      elevation: 2,
+      shadowColor: Colors.black.withValues(alpha: 0.16),
+      child: InkWell(
+        borderRadius: mode.chipRadius,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: mode.chipForeground,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
         ),
-        const SizedBox(width: 10),
-        FloatModeButton(
-          mode: mode,
-          label: '论对错',
-          selected: selectedView == BattleView.right,
-          onTap: () => onSelected(BattleView.right),
-        ),
-        const SizedBox(width: 10),
-        FloatModeButton(
-          mode: mode,
-          label: '比输赢',
-          selected: selectedView == BattleView.win,
-          onTap: () => onSelected(BattleView.win),
-        ),
-      ],
+      ),
     );
   }
 }

@@ -78,7 +78,8 @@ class _BattleAnalysisCardState extends State<BattleAnalysisCard> {
             evidence: card.evidence,
             speculation: card.speculation,
             expanded: _evidenceExpanded,
-            onToggle: () => setState(() => _evidenceExpanded = !_evidenceExpanded),
+            onToggle: () =>
+                setState(() => _evidenceExpanded = !_evidenceExpanded),
           ),
         ],
       ),
@@ -118,10 +119,17 @@ class _EvidenceDisclosure extends StatelessWidget {
                 AnimatedRotation(
                   turns: expanded ? 0.25 : 0,
                   duration: const Duration(milliseconds: 180),
-                  child: Icon(Icons.keyboard_arrow_right_rounded, size: 15, color: mode.cardMuted),
+                  child: Icon(
+                    Icons.keyboard_arrow_right_rounded,
+                    size: 15,
+                    color: mode.cardMuted,
+                  ),
                 ),
                 const SizedBox(width: 2),
-                Text('依据', style: TextStyle(color: mode.cardMuted, fontSize: 11.5)),
+                Text(
+                  '依据',
+                  style: TextStyle(color: mode.cardMuted, fontSize: 11.5),
+                ),
               ],
             ),
           ),
@@ -129,25 +137,47 @@ class _EvidenceDisclosure extends StatelessWidget {
         AnimatedCrossFade(
           firstChild: const SizedBox.shrink(),
           secondChild: Padding(
-            padding: const EdgeInsets.only(top: 5, left: 17),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  evidence.trim().isEmpty ? '暂无可对应的原文依据' : evidence,
-                  style: TextStyle(color: mode.cardMuted, fontSize: 11.5, height: 1.4),
+            padding: const EdgeInsets.only(top: 6, left: 5),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(12, 9, 12, 9),
+              decoration: BoxDecoration(
+                color: mode.primary.withValues(alpha: 0.05),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: mode.cardBorder.withValues(alpha: 0.45),
+                  width: 1,
                 ),
-                if (hasSpeculation) ...[
-                  const SizedBox(height: 5),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
                   Text(
-                    '推测：$speculation',
-                    style: TextStyle(color: mode.cardMuted, fontSize: 11.5, height: 1.4),
+                    evidence.trim().isEmpty ? '暂无可对应的原文依据' : evidence,
+                    style: TextStyle(
+                      color: mode.cardMuted,
+                      fontSize: 11.5,
+                      height: 1.5,
+                    ),
                   ),
+                  if (hasSpeculation) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      '推测：$speculation',
+                      style: TextStyle(
+                        color: mode.cardMuted,
+                        fontSize: 11.5,
+                        height: 1.5,
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
-          crossFadeState: expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+          crossFadeState: expanded
+              ? CrossFadeState.showSecond
+              : CrossFadeState.showFirst,
           duration: const Duration(milliseconds: 180),
         ),
       ],

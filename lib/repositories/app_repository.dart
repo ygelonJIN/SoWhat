@@ -17,7 +17,6 @@ abstract class AppRepository {
   /// 指定对话开始的时间（右上角展示，不随当前时刻变动）。
   Stream<DateTime> watchConversationStartedAt(String conversationId);
 
-  Future<void> seedDemoData();
   Future<Case> upsertCase(Case caseItem);
   Future<void> deleteCase(String conversationId);
   Future<void> deleteEmptyConversation(String conversationId);
@@ -48,6 +47,10 @@ abstract class AppRepository {
 
   /// 保存 BYOK 接入配置（厂商 / API Key / 模型 / 端点）。
   Future<void> saveAiConfig(AiConfig config);
+
+  /// 清空全部用户数据（对话 / 消息 / 分析 / 战场状态 / 长期记忆 / 图片），
+  /// 保留 AI 配置。用于「清空全部数据」：清完后各页面回到空白态。
+  Future<void> wipeUserData();
   Future<void> setBattleView(String conversationId, BattleView view);
   Future<void> applyAnalysisToBattle({
     required Analysis analysis,
