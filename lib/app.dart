@@ -5,8 +5,8 @@ import 'providers/app_providers.dart';
 import 'screens/battle_screen.dart';
 import 'theme/mode_theme.dart';
 
-class LoveRightWinApp extends ConsumerWidget {
-  const LoveRightWinApp({super.key});
+class SoWhatApp extends ConsumerWidget {
+  const SoWhatApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -14,7 +14,7 @@ class LoveRightWinApp extends ConsumerWidget {
 
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: '爱·对·赢',
+      title: 'So What',
       // 全局主题跟随当前模式：任何页面（含未来新增页面、push 出来的路由）
       // 都会自动继承模式视觉风格，无需各自再写一套。
       theme: ModeThemes.of(view).themeData,

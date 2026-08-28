@@ -1,19 +1,23 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/models.dart';
 import '../repositories/app_repository.dart';
+import '../repositories/drift_app_repository.dart';
 import '../repositories/memory_app_repository.dart';
 import '../services/ai_client.dart';
 import '../services/analysis_service.dart';
 import '../services/memory_generation_service.dart';
 import '../services/prompt_service.dart';
 
-// 当前仍使用内存仓库，后续切换到本地数据库持久化。
+// 当前使用 drift 持久化仓库；MemoryAppRepository 保留为测试/参考。
+// 如需切回内存仓库（调试用），改用 MemoryAppRepository()。
 
 // ─── 仓库 ─────────────────────────────────────────────────────────────────
 
 final appRepositoryProvider = Provider<AppRepository>((ref) {
-  final repository = MemoryAppRepository();
+  final repository = DriftAppRepository();
   ref.onDispose(repository.dispose);
   return repository;
 });
@@ -70,12 +74,12 @@ final conversationStartedAtProvider =
   );
 });
 
-final battleStateProvider = StreamProvider.family<BattleState, String>((
-  ref,
-  conversationId,
-) {
-  return ref.watch(appRepositoryProvider).watchBattleState(conversationId);
-});
+final battleStateProvider =
+    StreamProvider.family<BattleState, ({String conversationId, BattleView view})>(
+  (ref, key) => ref
+      .watch(appRepositoryProvider)
+      .watchBattleState(key.conversationId, key.view),
+);
 
 // ─── 状态 ──────────────────────────────────────────────────────────────────
 
@@ -90,6 +94,18 @@ final isAnalyzingProvider = StateProvider<bool>((ref) {
 /// 调试：聊天框实时显示当前正在执行的动作（测试用，后续可整体移除）。
 final debugStatusProvider = StateProvider<String>((ref) => '');
 
+// ─── 思考过程 ──────────────────────────────────────────────────────────────
+
+final thinkingStatusProvider = StateProvider<ThinkingStatus>((ref) {
+  return ThinkingStatus.idle;
+});
+
+final thinkingContentProvider = StateProvider<String>((ref) => '');
+
+final thinkingStartedAtProvider = StateProvider<DateTime?>((ref) => null);
+
+final thinkingExpandedProvider = StateProvider<bool>((ref) => false);
+
 // ─── 操作 ──────────────────────────────────────────────────────────────────
 
 final repositoryActionsProvider = Provider<AppRepositoryActions>((ref) {
@@ -100,7 +116,7 @@ final repositoryActionsProvider = Provider<AppRepositoryActions>((ref) {
 });
 
 class AppRepositoryActions {
-  const AppRepositoryActions({required this.repository, required this.ref});
+  AppRepositoryActions({required this.repository, required this.ref});
 
   final AppRepository repository;
   final Ref ref;
@@ -131,9 +147,53 @@ class AppRepositoryActions {
     }
   }
 
+  /// 标记一批对话已完成长期记忆写入（每个对话只允许一次）。
+  Future<void> finalizeConversationsForMemory(List<String> conversationIds) =>
+      repository.finalizeConversationsForMemory(conversationIds);
+
   /// 把一批分析卡片标记为已被「更新记忆」消化。
   Future<void> markAnalysesProcessed(List<String> analysisIds) =>
       repository.markAnalysesProcessed(analysisIds);
+
+  final Map<String, Completer<void>> _analysisCancellations = {};
+  final Map<String, String> _activeAnalysisKeys = {};
+  String _activeViewKey = '';
+
+  /// 取消当前进行中的分析（切换对话时调用）。
+  void cancelCurrentAnalysis() {
+    for (final completer in _analysisCancellations.values) {
+      if (!completer.isCompleted) completer.complete();
+    }
+    _analysisCancellations.clear();
+    _activeAnalysisKeys.clear();
+    _activeViewKey = '';
+    ref.read(isAnalyzingProvider.notifier).state = false;
+    ref.read(thinkingStatusProvider.notifier).state = ThinkingStatus.idle;
+    ref.read(thinkingContentProvider.notifier).state = '';
+    ref.read(thinkingStartedAtProvider.notifier).state = null;
+    ref.read(thinkingExpandedProvider.notifier).state = false;
+    ref.read(debugStatusProvider.notifier).state = '';
+  }
+
+  /// 切换到其他模式时，把思考面板切到该模式当前分析状态（若无则复位）。
+  void syncThinkingToView(String conversationId, BattleView view) {
+    final key = '$conversationId:${view.name}';
+    if (key == _activeViewKey) return;
+    _activeViewKey = key;
+    final activeKey = _activeAnalysisKeys[key];
+    final activeCancellation = activeKey == null
+        ? null
+        : _analysisCancellations[activeKey];
+    if (activeCancellation != null && !activeCancellation.isCompleted) {
+      ref.read(thinkingStatusProvider.notifier).state = ThinkingStatus.thinking;
+      ref.read(thinkingExpandedProvider.notifier).state = true;
+    } else {
+      ref.read(thinkingStatusProvider.notifier).state = ThinkingStatus.idle;
+      ref.read(thinkingContentProvider.notifier).state = '';
+      ref.read(thinkingStartedAtProvider.notifier).state = null;
+      ref.read(thinkingExpandedProvider.notifier).state = false;
+    }
+  }
 
   Future<void> addMessage({
     required String conversationId,
@@ -161,15 +221,28 @@ class AppRepositoryActions {
     required int sequence,
   }) => repository.deleteMessage(conversationId, sequence);
 
-  Future<void> runAnalysis(String conversationId) async {
-    if (ref.read(isAnalyzingProvider)) return;
-
+  Future<void> runAnalysis(String conversationId, {String turnId = ''}) async {
     final messages = await repository.watchMessages(conversationId).first;
     if (messages.isEmpty) return;
 
+    final effectiveTurnId = turnId.isNotEmpty
+        ? turnId
+        : DateTime.now().millisecondsSinceEpoch.toString();
+    final view = ref.read(selectedBattleViewProvider);
+    final viewKey = '$conversationId:${view.name}:$effectiveTurnId';
+
     ref.read(isAnalyzingProvider.notifier).state = true;
+    ref.read(thinkingStatusProvider.notifier).state = ThinkingStatus.thinking;
+    ref.read(thinkingContentProvider.notifier).state = '';
+    ref.read(thinkingStartedAtProvider.notifier).state = DateTime.now();
+    ref.read(thinkingExpandedProvider.notifier).state = true;
+
+    final cancelCompleter = Completer<void>();
+    _analysisCancellations[viewKey] = cancelCompleter;
+    _activeAnalysisKeys['$conversationId:${view.name}'] = viewKey;
+    _activeViewKey = '$conversationId:${view.name}';
+
     try {
-      final view = ref.read(selectedBattleViewProvider);
       final memory = await repository.watchMemory().first;
       final config = await repository.watchAiConfig().first;
       final conversation = const PromptService().formatConversation(messages);
@@ -191,15 +264,41 @@ class AppRepositoryActions {
         conversation: conversation,
         config: config.isConfigured ? config : null,
         images: images,
-        onDebug: (message) =>
-            ref.read(debugStatusProvider.notifier).state = message,
+        onDebug: (message) {
+          if (!cancelCompleter.isCompleted) {
+            ref.read(debugStatusProvider.notifier).state = message;
+          }
+        },
+        onThinking: (content) {
+          if (!cancelCompleter.isCompleted) {
+            ref.read(thinkingContentProvider.notifier).state = content;
+          }
+        },
       );
+      if (cancelCompleter.isCompleted) return;
       ref.read(debugStatusProvider.notifier).state =
           '分析完成：${analysis.cards.length} 张卡片';
 
-      await repository.saveAnalysis(analysis);
+      final savedAnalysis = analysis.turnId.isEmpty
+          ? Analysis(
+              id: analysis.id,
+              conversationId: analysis.conversationId,
+              view: analysis.view,
+              channel: analysis.channel,
+              modelName: analysis.modelName,
+              content: analysis.content,
+              cards: analysis.cards,
+              createdAt: analysis.createdAt,
+              tokenCount: analysis.tokenCount,
+              duration: analysis.duration,
+              turnId: effectiveTurnId,
+              memoryProcessedAt: analysis.memoryProcessedAt,
+            )
+          : analysis;
+      await repository.saveAnalysis(savedAnalysis);
+      if (cancelCompleter.isCompleted) return;
 
-      final cards = analysis.cards.map((c) {
+      final cards = savedAnalysis.cards.map((c) {
         return BattleCard(
           title: c.title,
           conclusion: c.conclusion,
@@ -208,12 +307,27 @@ class AppRepositoryActions {
         );
       }).toList();
       await repository.applyAnalysisToBattle(
-        analysis: analysis,
+        analysis: savedAnalysis,
         cards: cards,
         headline: _headlineFor(view, cards),
       );
+      if (cancelCompleter.isCompleted) return;
+      ref.read(thinkingStatusProvider.notifier).state = ThinkingStatus.done;
+      ref.read(thinkingExpandedProvider.notifier).state = false;
+    } catch (_) {
+      if (!cancelCompleter.isCompleted) {
+        ref.read(thinkingStatusProvider.notifier).state = ThinkingStatus.done;
+        ref.read(thinkingExpandedProvider.notifier).state = false;
+        rethrow;
+      }
     } finally {
-      ref.read(isAnalyzingProvider.notifier).state = false;
+      _analysisCancellations.remove(viewKey);
+      if (_activeAnalysisKeys['$conversationId:${view.name}'] == viewKey) {
+        _activeAnalysisKeys.remove('$conversationId:${view.name}');
+      }
+      if (_analysisCancellations.isEmpty) {
+        ref.read(isAnalyzingProvider.notifier).state = false;
+      }
     }
   }
 

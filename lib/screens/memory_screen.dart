@@ -207,17 +207,18 @@ class MemoryScreen extends ConsumerWidget {
       return;
     }
 
-    // 从仓库直接读取（不依赖 provider 缓存），收集未消化卡片。
+    // 从仓库直接读取（不依赖 provider 缓存），收集未消化卡片（已锁定对话不再参与）。
     final repository = ref.read(appRepositoryProvider);
     final service = ref.read(memoryGenerationServiceProvider);
     final cases = await repository.watchCases().first;
+    final activeCases = cases.where((c) => !c.hasFinalizedMemory).toList();
     final analysesByConversation = <String, List<Analysis>>{};
-    for (final caseItem in cases) {
+    for (final caseItem in activeCases) {
       analysesByConversation[caseItem.id] =
           await repository.watchAnalyses(caseItem.id).first;
     }
     final cards = service.collectUnprocessed(
-      cases: cases,
+      cases: activeCases,
       analysesOf: (conversationId) =>
           analysesByConversation[conversationId] ?? const [],
     );
@@ -225,7 +226,7 @@ class MemoryScreen extends ConsumerWidget {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('没有新的分析需要更新。'),
+          content: Text('没有新的分析需要更新，或相关对话已锁定。'),
           behavior: SnackBarBehavior.floating,
           duration: Duration(seconds: 2),
         ),
@@ -263,6 +264,11 @@ class MemoryScreen extends ConsumerWidget {
       await repository.markAnalysesProcessed(
         cards.map((c) => c.analysisId).toSet().toList(),
       );
+      final involvedConversationIds = cards
+          .map((c) => c.conversationId)
+          .toSet()
+          .toList();
+      await repository.finalizeConversationsForMemory(involvedConversationIds);
 
       if (!context.mounted) return;
       Navigator.of(context).pop(); // 关加载框

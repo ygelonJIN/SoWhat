@@ -1,5 +1,5 @@
-name: love_right_win
-description: "A new Flutter project."
+name: so_what
+description: "So What — Love · Right · Win"
 publish_to: 'none'
 version: 0.1.0
 
@@ -9,11 +9,17 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  drift: ^2.34.3
   flutter_riverpod: ^2.6.1
   image_picker: ^1.1.2
+  path: ^1.9.1
+  path_provider: ^2.1.5
+  sqlite3_flutter_libs: ^0.5.40
   uuid: ^4.6.0
 
 dev_dependencies:
+  build_runner: ^2.4.13
+  drift_dev: ^2.34.3
   flutter_lints: ^6.0.0
 
 flutter:

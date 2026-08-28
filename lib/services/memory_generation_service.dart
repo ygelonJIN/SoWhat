@@ -18,6 +18,7 @@ class MemoryGenerationService {
   }) {
     final cards = <GenerationCard>[];
     for (final caseItem in cases) {
+      if (caseItem.hasFinalizedMemory) continue;
       for (final analysis in analysesOf(caseItem.id)) {
         if (analysis.memoryProcessedAt != null) continue;
         for (final card in analysis.cards) {
@@ -57,7 +58,11 @@ class MemoryGenerationService {
     required List<GenerationCard> cards,
   }) {
     final buffer = StringBuffer()
-      ..writeln('你是这对情侣的长期关系档案管理员。用户点「更新记忆」时，把新增的分析卡片增量写进记忆档案。')
+      ..writeln('你是这对情侣的长期关系档案管理员。用户点「更新记忆」时，把新增的分析卡片增量写进一份统一长期记忆。')
+      ..writeln('长期记忆只有一份，不按模式拆分。模式只是分析视角，不是记忆分区。')
+      ..writeln('本次输入可能来自 1 个、2 个或 3 个模式，请只根据实际提供的卡片进行融合，不要假设三种模式都存在。')
+      ..writeln('同一对话未来不会重复写入长期记忆；你只负责输出当前这一次、对当前未消化卡片的统一归档。')
+      ..writeln('如果同一对话里同时出现多个模式的卡片，请把它们合并成一份客观、稳定、去模式化的最终档案。')
       ..writeln('你只输出一个 JSON 对象，不要任何其他文字。')
       ..writeln()
       ..writeln('【输入一：已有记忆档案】')
@@ -100,6 +105,7 @@ class MemoryGenerationService {
       ..writeln()
       ..writeln('▍二、增量条目 entries —— 九个板块')
       ..writeln('动态类（双方画像、关系状态、成长轨迹）——要「对照旧档案」：')
+      ..writeln('如果本次卡片来自同一对话的不同模式，请综合它们生成更客观的统一条目，不要按模式分别输出三份记忆。')
       ..writeln('先读旧档案中同板块的旧条目，再看本轮卡片，判断关系：')
       ..writeln('- 卡片观察与旧条目描述「一致」（同一模式再次出现）→ 写新条目，以「仍在：…」开头。')
       ..writeln('- 卡片观察与旧条目描述「不一致 / 有新发现」→ 写新条目，以「变化：…」开头，写清从什么变成了什么。')

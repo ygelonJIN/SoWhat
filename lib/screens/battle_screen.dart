@@ -48,8 +48,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   void initState() {
     super.initState();
     _inputFocusNode.addListener(_handleInputFocusChanged);
+    // 打开时只恢复该对话保存的模式，不自动触发思考。
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _runAnalysis();
+      if (mounted) _restoreConversationMode(_conversationId);
     });
   }
 
@@ -125,8 +126,11 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
           .createConversation();
       ref.read(selectedConversationIdProvider.notifier).state = caseItem.id;
       _closeSettings();
-    } catch (_) {
-      _showError('新建对话失败，请稍后重试。');
+    } catch (e, st) {
+      // 透出真实错误，定位数据库初始化失败原因
+      // ignore: avoid_print
+      print('[BattleScreen] _createNewConversation error: $e\n$st');
+      _showError('新建对话失败：$e');
     }
   }
 
@@ -142,15 +146,40 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   void _onConversationChanged() {
     FocusScope.of(context).unfocus();
     _collapseFan();
+    // 切换对话：直接停止上一个对话正在进行的分析，不再自动触发新分析。
+    ref.read(repositoryActionsProvider).cancelCurrentAnalysis();
     if (_stagedImages.isNotEmpty) {
       setState(() => _stagedImages.clear());
     }
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
     }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _runAnalysis();
-    });
+    _restoreConversationMode(_conversationId);
+  }
+
+  /// 每个对话隔离：切换到某段对话时，恢复它自己保存的模式（为爱 / 论对错 / 比输赢）。
+  Future<void> _restoreConversationMode(String conversationId) async {
+    try {
+      final cases = await ref.read(casesProvider.future);
+      Case? caseItem;
+      for (final item in cases) {
+        if (item.id == conversationId) {
+          caseItem = item;
+          break;
+        }
+      }
+      if (!mounted) return;
+      if (ref.read(selectedConversationIdProvider) != conversationId) return;
+      if (caseItem != null) {
+        ref.read(selectedBattleViewProvider.notifier).state = caseItem.lastView;
+        ref.read(repositoryActionsProvider).syncThinkingToView(
+          conversationId,
+          caseItem.lastView,
+        );
+      }
+    } catch (_) {
+      // 读取失败保持当前模式即可。
+    }
   }
 
   // ─── 对话操作 ───────────────────────────────────────────────────────────────
@@ -167,8 +196,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
     final hasImages = _stagedImages.isNotEmpty;
-    if ((text.isEmpty && !hasImages) || ref.read(isAnalyzingProvider)) return;
+    if (text.isEmpty && !hasImages) return;
     try {
+      // 允许并行分析：不再先取消上一轮分析。
       ref.read(debugStatusProvider.notifier).state =
           hasImages ? '发送文字 + ${_stagedImages.length} 张图片…' : '发送消息并触发分析…';
       if (text.isNotEmpty) {
@@ -224,10 +254,10 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   }
 
   Future<void> _runAnalysis() async {
-    if (ref.read(isAnalyzingProvider)) return;
     ref.read(debugStatusProvider.notifier).state = '正在准备分析…';
     try {
-      await ref.read(repositoryActionsProvider).runAnalysis(_conversationId);
+      final turnId = DateTime.now().millisecondsSinceEpoch.toString();
+      await ref.read(repositoryActionsProvider).runAnalysis(_conversationId, turnId: turnId);
     } catch (error) {
       ref.read(debugStatusProvider.notifier).state = '分析失败：$error';
       _showError('分析失败，请稍后重试。', error);
@@ -235,13 +265,13 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   }
 
   Future<void> _selectView(BattleView view) async {
-    if (ref.read(isAnalyzingProvider)) return;
+    if (view == ref.read(selectedBattleViewProvider)) return;
     ref.read(selectedBattleViewProvider.notifier).state = view;
+    ref.read(repositoryActionsProvider).syncThinkingToView(_conversationId, view);
     try {
       await ref
           .read(repositoryActionsProvider)
           .setBattleView(_conversationId, view);
-      await _runAnalysis();
     } catch (error) {
       _showError('切换视角失败，请稍后重试。', error);
     }
@@ -279,8 +309,10 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final battleAsync = ref.watch(battleStateProvider(_conversationId));
     final selectedView = ref.watch(selectedBattleViewProvider);
+    final battleAsync = ref.watch(
+      battleStateProvider((conversationId: _conversationId, view: selectedView)),
+    );
     final conversationId = ref.watch(selectedConversationIdProvider);
     final messagesAsync = ref.watch(conversationMessagesProvider(conversationId));
     final isAnalyzing = ref.watch(isAnalyzingProvider);
@@ -500,7 +532,6 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                     mode: mode,
                     selectedView: selectedView,
                     onSelected: _selectView,
-                    isAnalyzing: isAnalyzing,
                   ),
                   const SizedBox(height: 8),
                   // 调试状态栏：实时显示当前正在干什么（测试用，可移除）。
@@ -570,13 +601,11 @@ class _FloatingModePicker extends StatelessWidget {
     required this.mode,
     required this.selectedView,
     required this.onSelected,
-    required this.isAnalyzing,
   });
 
   final ModeTheme mode;
   final BattleView selectedView;
   final ValueChanged<BattleView> onSelected;
-  final bool isAnalyzing;
 
   @override
   Widget build(BuildContext context) {
@@ -588,7 +617,6 @@ class _FloatingModePicker extends StatelessWidget {
           label: '为爱',
           selected: selectedView == BattleView.love,
           onTap: () => onSelected(BattleView.love),
-          disabled: isAnalyzing,
         ),
         const SizedBox(width: 10),
         FloatModeButton(
@@ -596,7 +624,6 @@ class _FloatingModePicker extends StatelessWidget {
           label: '论对错',
           selected: selectedView == BattleView.right,
           onTap: () => onSelected(BattleView.right),
-          disabled: isAnalyzing,
         ),
         const SizedBox(width: 10),
         FloatModeButton(
@@ -604,7 +631,6 @@ class _FloatingModePicker extends StatelessWidget {
           label: '比输赢',
           selected: selectedView == BattleView.win,
           onTap: () => onSelected(BattleView.win),
-          disabled: isAnalyzing,
         ),
       ],
     );

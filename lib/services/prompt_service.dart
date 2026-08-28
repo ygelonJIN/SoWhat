@@ -141,10 +141,10 @@ $conversation
       background: background,
     );
     return PromptPackage(
-      title: '爱·对·赢 · ${_viewLabel(view)}分析包',
+      title: 'So What · ${_viewLabel(view)}分析包',
       view: view,
       prompt: prompt,
-      footer: '—— 由「爱·对·赢」生成，结果可直接粘贴回 App 存档。',
+      footer: '—— 由「So What」生成，结果可直接粘贴回 App 存档。',
     );
   }
 

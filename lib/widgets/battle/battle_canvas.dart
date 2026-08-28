@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/models.dart';
+import '../../providers/app_providers.dart';
 import '../../theme/mode_theme.dart';
 import '../cards/analysis_card.dart';
+import '../thinking/thinking_panel.dart';
 
 /// 聊天主内容区：仅保留分析卡片。
 ///
@@ -67,18 +70,40 @@ class _BattleCanvasState extends State<BattleCanvas> {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      controller: widget.scrollController,
-      padding: const EdgeInsets.fromLTRB(16, 118, 16, 236),
-      // 空对话保持空白：新建页面的引导样式后续再设计（见产品文档 3.1.2）。
-      children: [
-        ...widget.state.cards.map(
-          (card) => Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: BattleAnalysisCard(card: card, mode: widget.mode),
-          ),
-        ),
-      ],
+    return Consumer(
+      builder: (context, ref, _) {
+        final status = ref.watch(thinkingStatusProvider);
+        final content = ref.watch(thinkingContentProvider);
+        final startedAt = ref.watch(thinkingStartedAtProvider);
+        final expanded = ref.watch(thinkingExpandedProvider);
+        final showThinking = status != ThinkingStatus.idle;
+        return ListView(
+          controller: widget.scrollController,
+          padding: const EdgeInsets.fromLTRB(16, 118, 16, 236),
+          children: [
+            if (showThinking)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: ThinkingPanel(
+                  mode: widget.mode,
+                  status: status,
+                  content: content,
+                  expanded: expanded,
+                  startedAt: startedAt,
+                  onToggle: () {
+                    ref.read(thinkingExpandedProvider.notifier).state = !expanded;
+                  },
+                ),
+              ),
+            ...widget.state.cards.map(
+              (card) => Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: BattleAnalysisCard(card: card, mode: widget.mode),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

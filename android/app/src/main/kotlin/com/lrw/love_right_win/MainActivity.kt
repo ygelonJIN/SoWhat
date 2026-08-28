@@ -1,4 +1,4 @@
-package com.lrw.love_right_win
+package com.sowhat.app
 
 import io.flutter.embedding.android.FlutterActivity
 

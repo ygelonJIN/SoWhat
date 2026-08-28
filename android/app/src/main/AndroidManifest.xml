@@ -3,7 +3,7 @@
         android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <application
-        android:label="love_right_win"
+        android:label="So What"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

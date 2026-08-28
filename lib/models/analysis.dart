@@ -15,6 +15,9 @@ class Analysis {
   final int tokenCount;
   final Duration? duration;
 
+  /// 同一对话下的同一次发送轮次，用于区分并行模式分析。
+  final String turnId;
+
   /// 被「更新记忆」消化的时间；为空表示尚未进入记忆档案。
   final DateTime? memoryProcessedAt;
 
@@ -29,6 +32,7 @@ class Analysis {
     DateTime? createdAt,
     this.tokenCount = 0,
     this.duration,
+    this.turnId = '',
     this.memoryProcessedAt,
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now();

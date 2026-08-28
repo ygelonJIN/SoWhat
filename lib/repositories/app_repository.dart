@@ -5,7 +5,7 @@ abstract class AppRepository {
   Stream<List<Case>> watchCases();
   Stream<List<Message>> watchMessages(String conversationId);
   Stream<List<Analysis>> watchAnalyses(String conversationId);
-  Stream<BattleState> watchBattleState(String conversationId);
+  Stream<BattleState> watchBattleState(String conversationId, BattleView view);
   Stream<MemoryProfile> watchMemory();
   Stream<AiConfig> watchAiConfig();
 
@@ -24,6 +24,9 @@ abstract class AppRepository {
 
   /// 删除引用了该对话的所有记忆条目（删除对话时勾选「连同记忆一起删除」）。
   Future<void> deleteMemoryForConversation(String conversationId);
+
+  /// 标记一批对话已完成长期记忆写入（每个对话只允许一次）。
+  Future<void> finalizeConversationsForMemory(List<String> conversationIds);
 
   /// 把分析卡片标记为「已被记忆消化」。
   Future<void> markAnalysesProcessed(List<String> analysisIds);

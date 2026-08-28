@@ -85,7 +85,7 @@ class ChatComposer extends StatelessWidget {
                 mode: mode,
                 icon: Icons.photo_library_rounded,
                 badge: hasPending ? pendingCount : 0,
-                onPressed: isAnalyzing ? null : onAttach,
+                onPressed: onAttach,
               ),
             ),
             suffixIcon: Padding(
@@ -93,13 +93,11 @@ class ChatComposer extends StatelessWidget {
               child: _ActionChipButton(
                 mode: mode,
                 icon: Icons.arrow_upward_rounded,
-                onPressed: isAnalyzing ? null : onSend,
+                onPressed: onSend,
               ),
             ),
           ),
-          onSubmitted: (_) {
-            if (!isAnalyzing) onSend();
-          },
+          onSubmitted: (_) => onSend(),
         ),
       ),
     );

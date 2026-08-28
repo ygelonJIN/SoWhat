@@ -22,6 +22,7 @@ class AnalysisService {
     AiConfig? config,
     List<MessageImage> images = const [],
     void Function(String message)? onDebug,
+    void Function(String cumulativeThinking)? onThinking,
   }) async {
     final promptService = const PromptService();
     final effectiveMemory = memory ?? MemoryProfile.empty();
@@ -37,9 +38,18 @@ class AnalysisService {
         promptService: promptService,
         images: images,
         onDebug: onDebug,
+        onThinking: onThinking,
       );
     }
 
+    if (onThinking != null) {
+      onThinking('正在理解对话上下文…');
+      await Future<void>.delayed(const Duration(milliseconds: 420));
+      onThinking('正在理解对话上下文…\n正在结合长期记忆分析关系模式…');
+      await Future<void>.delayed(const Duration(milliseconds: 520));
+      onThinking('正在理解对话上下文…\n正在结合长期记忆分析关系模式…\n正在按「${_viewLabel(view)}」视角逐维度展开…');
+      await Future<void>.delayed(const Duration(milliseconds: 480));
+    }
     onDebug?.call('未配置 API，使用演示分析…');
     final prompt = promptService.buildSystemPrompt(
       view: view,
@@ -68,6 +78,7 @@ class AnalysisService {
     required PromptService promptService,
     required List<MessageImage> images,
     void Function(String message)? onDebug,
+    void Function(String cumulativeThinking)? onThinking,
   }) async {
     final prompt = promptService.buildSystemPrompt(
       view: view,
@@ -87,11 +98,18 @@ class AnalysisService {
           ? '正在调用 ${config.effectiveModel}（$protocolLabel）…'
           : '正在编码 ${images.length} 张图片并调用 ${config.effectiveModel}（$protocolLabel）…',
     );
-    final raw = await const AiClient().chat(
+    final thinkingBuffer = StringBuffer();
+    final raw = await const AiClient().chatStream(
       config: config,
       system: prompt,
       user: user,
       images: images,
+      onThinking: onThinking == null
+          ? null
+          : (delta) {
+              thinkingBuffer.write(delta);
+              onThinking(thinkingBuffer.toString());
+            },
     );
     onDebug?.call('已收到模型响应，正在解析维度卡片…');
 
@@ -105,6 +123,17 @@ class AnalysisService {
       cards: cards,
       tokenCount: prompt.length,
     );
+  }
+
+  String _viewLabel(BattleView view) {
+    switch (view) {
+      case BattleView.love:
+        return '为爱';
+      case BattleView.right:
+        return '论对错';
+      case BattleView.win:
+        return '比输赢';
+    }
   }
 
   /// 解析模型返回的结构化 JSON（可能被 ```json 代码块包裹）。

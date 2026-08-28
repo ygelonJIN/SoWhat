@@ -60,12 +60,13 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
-  Stream<BattleState> watchBattleState(String conversationId) async* {
+  Stream<BattleState> watchBattleState(String conversationId, BattleView view) async* {
     final controller = _battleControllers.putIfAbsent(
       conversationId,
       () => StreamController<BattleState>.broadcast(),
     );
-    yield _battleStates[conversationId] ?? BattleState.initial();
+    final state = _battleStates[conversationId] ?? BattleState.initial(view);
+    yield state.view == view ? state : state.copyWith(view: view);
     yield* controller.stream;
   }
 
@@ -185,6 +186,7 @@ class MemoryAppRepository implements AppRepository {
       Case(
         id: currentConversationId,
         createdAt: now.subtract(const Duration(minutes: 40)),
+        lastView: BattleView.love,
       ),
     );
   }
@@ -301,6 +303,18 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
+  Future<void> finalizeConversationsForMemory(List<String> conversationIds) async {
+    for (final convId in conversationIds) {
+      final index = _cases.indexWhere((item) => item.id == convId);
+      if (index < 0) continue;
+      final c = _cases[index];
+      if (c.hasFinalizedMemory) continue;
+      _cases[index] = c.copyWith(memoryFinalizedAt: DateTime.now());
+    }
+    _emitCases();
+  }
+
+  @override
   Future<void> markAnalysesProcessed(List<String> analysisIds) async {
     if (analysisIds.isEmpty) return;
     for (final list in _analysesByConversation.values) {
@@ -342,6 +356,11 @@ class MemoryAppRepository implements AppRepository {
       cards: const [],
       updatedAt: DateTime.now(),
     );
+    final index = _cases.indexWhere((item) => item.id == conversationId);
+    if (index >= 0) {
+      _cases[index] = _cases[index].copyWith(lastView: view);
+      _emitCases();
+    }
     _emitBattle(conversationId);
   }
 
