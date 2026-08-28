@@ -50,7 +50,7 @@ class MemoryProfile {
   }
 }
 
-/// 一条有出处的长期记忆（九板块之一，随源对话删除，不可单独清除）。
+/// 一条有出处的长期记忆（九板块之一，源对话删除后保留并标记来源状态）。
 class MemoryEntry {
   final String id;
   final MemoryKind kind;
@@ -59,6 +59,7 @@ class MemoryEntry {
   final DateTime createdAt;
   final DateTime? updatedAt;
   final bool isDeleted;
+  final bool sourceGone;
 
   MemoryEntry({
     String? id,
@@ -68,6 +69,7 @@ class MemoryEntry {
     DateTime? createdAt,
     this.updatedAt,
     this.isDeleted = false,
+    this.sourceGone = false,
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now();
 
@@ -76,6 +78,7 @@ class MemoryEntry {
     List<MemorySourceRef>? sources,
     DateTime? updatedAt,
     bool? isDeleted,
+    bool? sourceGone,
   }) {
     return MemoryEntry(
       id: id,
@@ -85,6 +88,7 @@ class MemoryEntry {
       createdAt: createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       isDeleted: isDeleted ?? this.isDeleted,
+      sourceGone: sourceGone ?? this.sourceGone,
     );
   }
 }

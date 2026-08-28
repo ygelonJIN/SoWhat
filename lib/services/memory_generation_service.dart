@@ -12,6 +12,10 @@ class MemoryGenerationService {
   const MemoryGenerationService();
 
   /// 单张「未消化」分析卡片（输入给 AI 的最小单元）。
+  ///
+  /// 跳过已锁定对话（hasFinalizedMemory = true）：一个对话只允许成功生成一次
+  /// 长期记忆，不允许后续单看新卡片再重复生成，因为共享档案的四大类需要跨模式
+  /// 客观融合，不能被单一模式的增量卡片反复修改。
   List<GenerationCard> collectUnprocessed({
     required List<Case> cases,
     required List<Analysis> Function(String conversationId) analysesOf,
@@ -79,6 +83,7 @@ class MemoryGenerationService {
         ..writeln('[卡片${i + 1}]')
         ..writeln('  对话：${card.conversationLabel}')
         ..writeln('  日期：${_formatDateTime(card.happenedAt)}')
+        ..writeln('  注意：同一对话的多个卡片共享同一个来源时间；界面只显示一次日期时间。')
         ..writeln('  视角：${_viewLabel(card.view)}')
         ..writeln('  维度：${card.dimension}')
         ..writeln('  结论：${card.conclusion}')
@@ -110,9 +115,9 @@ class MemoryGenerationService {
       ..writeln('- 卡片观察与旧条目描述「一致」（同一模式再次出现）→ 写新条目，以「仍在：…」开头。')
       ..writeln('- 卡片观察与旧条目描述「不一致 / 有新发现」→ 写新条目，以「变化：…」开头，写清从什么变成了什么。')
       ..writeln('  示例：旧条目「TA 冲突时倾向沉默」；卡片说「TA 又沉默」→「仍在：TA 冲突时倾向沉默」；卡片说「TA 主动开口表达」→「变化：TA 从沉默变为主动表达」。')
-      ..writeln('静态类（矛盾触发点、有效沟通方式库、关系里程碑、雷区清单、未解决的问题、承诺跟踪）——只增量，不看旧档案：')
-      ..writeln('本轮卡片里能观察到的，直接写成新条目；不做对比、不写「仍在/变化」前缀；旧条目一律保留。')
-      ..writeln('两类共同：旧条目一律保留，只追加，不覆盖。')
+      ..writeln('静态类（矛盾触发点、有效沟通方式库、关系里程碑、雷区清单、未解决的问题、承诺跟踪）——只增量，但要先去重：')
+      ..writeln('本轮卡片里能观察到、且旧档案没有实质重复的内容，直接写成新条目；同一对话或同一事实在多个模式卡片中重复出现时，只输出一条，合并 cardRef；若已存在等价条目，不再重复追加。')
+      ..writeln('动态类也要去重：同一对话、同一事实的多张卡片合并为一条，多个来源用逗号分隔。旧条目一律保留，只追加有新信息的条目，不覆盖。')
       ..writeln('每条必须标注出处：cardRef 填「卡片N」（引用输入卡片编号，多个来源用逗号分隔，如「卡片1,卡片3」），不要改写编号。')
       ..writeln()
       ..writeln('【输出顺序】')
@@ -122,9 +127,11 @@ class MemoryGenerationService {
       ..writeln()
       ..writeln('【铁律】')
       ..writeln('1. 只写卡片里能看到的事实，不编造。')
+      ..writeln('1a. 「事实」「观察」「推断」分层：仅事实或多次一致观察可写入稳定档案；单次且不确定的判断写入时必须保留「可能 / 尚无法确认」等限定。')
       ..writeln('2. 用「双方 / 你 / TA」，禁止性别与角色标签。')
       ..writeln('3. 条目一句话一条，只写具体观察，不写情绪化评价。')
-      ..writeln('4. 没有新条目时 entries 输出空数组；概况任何时候都要输出完整版。')
+      ..writeln('4. 同一对话只显示一次出处日期和时间；不要输出「等几处」或重复来源提示。多个 cardRef 只用于内部精确回溯，不改变界面展示。')
+      ..writeln('5. 没有新条目时 entries 输出空数组；概况任何时候都要输出完整版。')
       ..writeln()
       ..writeln('【输出 JSON】')
       ..writeln('{ "entries": [')

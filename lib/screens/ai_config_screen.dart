@@ -48,6 +48,18 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
     _apiKeyController = TextEditingController(text: config.apiKey);
     _modelController = TextEditingController(text: config.model);
     _baseUrlController = TextEditingController(text: config.baseUrl);
+    _loadSavedConfig();
+  }
+
+  Future<void> _loadSavedConfig() async {
+    final saved = await ref.read(appRepositoryProvider).watchAiConfig().first;
+    if (!mounted) return;
+    setState(() {
+      _protocol = saved.protocol;
+      _apiKeyController.text = saved.apiKey;
+      _modelController.text = saved.model;
+      _baseUrlController.text = saved.baseUrl;
+    });
   }
 
   @override
@@ -123,6 +135,7 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
     final config = _buildConfig();
     try {
       await ref.read(repositoryActionsProvider).saveAiConfig(config);
+      ref.invalidate(aiConfigProvider);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(

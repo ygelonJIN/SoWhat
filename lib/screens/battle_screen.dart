@@ -1,7 +1,14 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../models/models.dart';
 import '../providers/app_providers.dart';
@@ -14,6 +21,62 @@ import '../widgets/buttons/float_mode_button.dart';
 import '../widgets/buttons/pill_button.dart';
 import '../widgets/input/chat_composer.dart';
 import '../widgets/settings/settings_panel.dart';
+
+/// 读取图片文件头几个字节，识别真实格式并返回后缀（.jpg / .png / .webp）。
+///
+/// 用 magic bytes 而不是扩展名判断，避免 image_picker 压缩转换后
+/// 扩展名与内容不一致导致发给模型时类型标注错误。
+Future<String> _detectImageExtension(String path) async {
+  final raf = await File(path).open();
+  try {
+    final bytes = await raf.read(12);
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xFF &&
+        bytes[1] == 0xD8 &&
+        bytes[2] == 0xFF) {
+      return '.jpg';
+    }
+    if (bytes.length >= 8 &&
+        bytes[0] == 0x89 &&
+        bytes[1] == 0x50 &&
+        bytes[2] == 0x4E &&
+        bytes[3] == 0x47) {
+      return '.png';
+    }
+    if (bytes.length >= 12 &&
+        bytes[8] == 0x57 &&
+        bytes[9] == 0x45 &&
+        bytes[10] == 0x42 &&
+        bytes[11] == 0x50) {
+      return '.webp';
+    }
+    return '.jpg';
+  } finally {
+    await raf.close();
+  }
+}
+
+/// 按文件后缀映射 MIME 类型（暂存文件后缀由 [_detectImageExtension] 保证
+/// 与真实格式一致）。
+String _mimeTypeFor(String path) {
+  final lower = path.toLowerCase();
+  if (lower.endsWith('.png')) return 'image/png';
+  if (lower.endsWith('.webp')) return 'image/webp';
+  return 'image/jpeg';
+}
+
+/// 在后台 isolate 里把图片解码并重编码为 JPEG q90（与实测选定的
+/// 「JPEG q90 全分辨率」一致）。返回 null 表示无法解码（如 HEIC），
+/// 调用方应保留原图。
+Uint8List? _encodeJpeg90(Uint8List bytes) {
+  try {
+    final decoded = img.decodeImage(bytes);
+    if (decoded == null) return null;
+    return img.encodeJpg(decoded, quality: 90);
+  } catch (_) {
+    return null;
+  }
+}
 
 /// 主聊天界面（产品文档 3.1）。
 ///
@@ -42,16 +105,35 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   final List<String> _stagedImages = [];
 
   /// 当前打开的对话 id（设置页切换对话 / 新建对话时变化）。
-  String get _conversationId => ref.read(selectedConversationIdProvider);
+  /// 首帧前可能尚未解析（provider 初始为 null），返回空串让界面先渲染空态，
+  /// [ensureConversation] 完成后会自动重建。
+  String get _conversationId =>
+      ref.read(selectedConversationIdProvider) ?? '';
 
   @override
   void initState() {
     super.initState();
     _inputFocusNode.addListener(_handleInputFocusChanged);
-    // 打开时只恢复该对话保存的模式，不自动触发思考。
+    // 首帧先解析当前对话（最近的聊天记录，没有则新建一段空白对话）；
+    // 再恢复该对话保存的模式，不自动触发思考。
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _restoreConversationMode(_conversationId);
+      if (mounted) _bootstrapConversation();
     });
+  }
+
+  /// 启动时创建一段「临时空白对话」作为当前对话（可正常编辑发送）；
+  /// 顺带清理上次退出时残留的空白对话，让空白草稿只在作为当前对话时短暂存在。
+  Future<void> _bootstrapConversation() async {
+    try {
+      final actions = ref.read(repositoryActionsProvider);
+      final id = await actions.ensureConversation();
+      if (!mounted) return;
+      await actions.cleanupStaleEmptyConversations(keepConversationId: id);
+      if (!mounted) return;
+      _restoreConversationMode(_conversationId);
+    } catch (_) {
+      // 启动阶段失败不阻塞界面，后续交互时再重试。
+    }
   }
 
   @override
@@ -143,11 +225,17 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     _closeSettings();
   }
 
-  void _onConversationChanged() {
+  Future<void> _onConversationChanged(String? previousId) async {
     FocusScope.of(context).unfocus();
     _collapseFan();
-    // 切换对话：直接停止上一个对话正在进行的分析，不再自动触发新分析。
-    ref.read(repositoryActionsProvider).cancelCurrentAnalysis();
+    // 切换对话：空白草稿只在当前页面临时存在，离开后从历史记录中消失、
+    // 也不写入长期记忆（空白对话没有任何消息，天然不产生分析卡片）。
+    if (previousId != null && mounted) {
+      await ref
+          .read(repositoryActionsProvider)
+          .cleanupEmptyConversation(previousId);
+    }
+    // 切换对话时不取消后台分析；每个对话和模式的任务彼此独立并行运行。
     if (_stagedImages.isNotEmpty) {
       setState(() => _stagedImages.clear());
     }
@@ -211,6 +299,16 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
             );
       }
       for (var i = 0; i < _stagedImages.length; i++) {
+        final assetPath = _stagedImages[i];
+        final file = File(assetPath);
+        final asset = Asset(
+          path: assetPath,
+          title: '',
+          sizeBytes: await file.length(),
+          mimeType: _mimeTypeFor(assetPath),
+        );
+        final existingAsset = await ref.read(appRepositoryProvider).assetByPath(assetPath);
+        await ref.read(appRepositoryProvider).saveAsset(existingAsset ?? asset);
         await ref
             .read(repositoryActionsProvider)
             .addMessage(
@@ -218,12 +316,13 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
               party: Party.a,
               type: MessageType.image,
               content: '截图 ${i + 1}',
-              assetPath: _stagedImages[i],
+              assetPath: assetPath,
             );
       }
       _messageController.clear();
       setState(() => _stagedImages.clear());
-      await _runAnalysis();
+      final analysisView = ref.read(selectedBattleViewProvider);
+      unawaited(_runAnalysis(view: analysisView));
       _scrollToBottom();
     } catch (_) {
       _showError('发送失败，请稍后重试。');
@@ -231,37 +330,118 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   }
 
   /// 选图：只暂存，不写入对话、不触发分析；点「发送」才会发出。
+  ///
+  /// 图片没有固定张数上限；每张图片转成 Base64 后不能超过官方 50 MB 限制。
+  /// 请求总大小还受接口和上下文限制影响，因此发送前会计算体积。
+  ///
+  /// 压缩策略：
+  /// - image_picker 的 imageQuality: 90 只对 JPEG/HEIC 生效，PNG 会被原样
+  ///   返回（已核实插件源码），所以 PNG（尤其截图）在这里用纯 Dart 解码
+  ///   并重编码为 JPEG q90，与实测选定的压缩效果一致；
+  /// - 已压缩的小体积 JPEG（≤2MB）直接使用，避免二次编码损耗。
   Future<void> _pickImages() async {
-    if (ref.read(isAnalyzingProvider)) return;
     try {
       ref.read(debugStatusProvider.notifier).state = '正在选择图片…';
-      final images = await _imagePicker.pickMultiImage();
+      final images = await _imagePicker.pickMultiImage(imageQuality: 90);
       if (images.isEmpty) {
         ref.read(debugStatusProvider.notifier).state = '未选择图片';
         return;
       }
       final existing = _stagedImages.toSet();
-      final added = images
-          .map((image) => image.path)
-          .where((path) => existing.add(path))
-          .toList();
+      final added = <String>[];
+      var skippedOversize = 0;
+      final assetDirectory = await getApplicationDocumentsDirectory();
+      final assetsDirectory = Directory(p.join(assetDirectory.path, 'assets'));
+      await assetsDirectory.create(recursive: true);
+      for (var i = 0; i < images.length; i++) {
+        final sourcePath = images[i].path;
+        if (existing.contains(sourcePath)) continue;
+        ref.read(debugStatusProvider.notifier).state =
+            '正在压缩图片 ${added.length + 1}/${images.length}…';
+        // 官方限制：单张图片的 Base64 字符串不能超过 50 MB。
+        final sourceFile = File(sourcePath);
+        final base64Size = (await sourceFile.length() + 2) ~/ 3 * 4;
+        if (base64Size > kMaxBase64ImageBytes) {
+          skippedOversize++;
+          continue;
+        }
+        var extension = await _detectImageExtension(sourcePath);
+        var outputBytes = await sourceFile.readAsBytes();
+        // PNG 或其他大文件需要压缩；已压缩的小 JPEG 直接用。
+        final needsCompress =
+            extension != '.jpg' || outputBytes.length > 2 * 1024 * 1024;
+        if (needsCompress) {
+          final compressed = await compute(_encodeJpeg90, outputBytes);
+          if (compressed != null) {
+            outputBytes = compressed;
+            extension = '.jpg';
+          }
+        }
+        final target = File(
+          p.join(
+            assetsDirectory.path,
+            '${DateTime.now().microsecondsSinceEpoch}_${added.length}$extension',
+          ),
+        );
+        await target.writeAsBytes(outputBytes, flush: true);
+        added.add(target.path);
+        existing.add(target.path);
+      }
       setState(() => _stagedImages.addAll(added));
+      if (skippedOversize > 0) {
+        _showSnackBar('有 $skippedOversize 张图片超过官方 50 MB Base64 限制，已跳过');
+      }
       ref.read(debugStatusProvider.notifier).state =
-          '已暂存 ${_stagedImages.length} 张图片，点「发送」才真正发出';
+          '已暂存 ${_stagedImages.length} 张图片（已压缩为 JPEG），点「发送」才真正发出';
     } catch (error) {
       _showError('截图导入失败，请检查相册权限。', error);
     }
   }
 
-  Future<void> _runAnalysis() async {
+  Future<void> _runAnalysis({required BattleView view}) async {
+    final conversationId = _conversationId;
+    if (conversationId.isEmpty) return;
     ref.read(debugStatusProvider.notifier).state = '正在准备分析…';
     try {
       final turnId = DateTime.now().millisecondsSinceEpoch.toString();
-      await ref.read(repositoryActionsProvider).runAnalysis(_conversationId, turnId: turnId);
+      final skipped = await ref.read(repositoryActionsProvider).runAnalysis(
+        conversationId,
+        turnId: turnId,
+        analysisView: view,
+      );
+      if (skipped > 0 &&
+          ref.read(selectedConversationIdProvider) == conversationId &&
+          ref.read(selectedBattleViewProvider) == view) {
+        _showThemedError(
+          '有 $skipped 张图片已失效（文件不存在），本次分析已自动跳过这些图片。',
+          ModeThemes.of(view),
+        );
+      }
     } catch (error) {
-      ref.read(debugStatusProvider.notifier).state = '分析失败：$error';
-      _showError('分析失败，请稍后重试。', error);
+      if (ref.read(selectedConversationIdProvider) == conversationId &&
+          ref.read(selectedBattleViewProvider) == view) {
+        ref.read(debugStatusProvider.notifier).state = '分析失败：$error';
+        _showError('分析失败，请稍后重试。', error, ModeThemes.of(view));
+      }
     }
+  }
+
+  void _showThemedError(String message, ModeTheme mode) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message, style: TextStyle(color: mode.onPrimary)),
+        backgroundColor: mode.primary,
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 4),
+        shape: RoundedRectangleBorder(borderRadius: mode.chipRadius),
+        action: SnackBarAction(
+          label: '知道了',
+          textColor: mode.onPrimary,
+          onPressed: () {},
+        ),
+      ),
+    );
   }
 
   Future<void> _selectView(BattleView view) async {
@@ -288,9 +468,11 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     );
   }
 
-  void _showError(String message, [Object? error]) {
+  void _showError(String message, [Object? error, ModeTheme? viewMode]) {
     if (!mounted) return;
-    _showSnackBar(error == null ? message : '$message（$error）');
+    final mode = viewMode ?? ModeThemes.of(ref.read(selectedBattleViewProvider));
+    final detail = error == null ? message : '$message（$error）';
+    _showThemedError(detail, mode);
   }
 
   void _scrollToBottom() {
@@ -310,22 +492,32 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   @override
   Widget build(BuildContext context) {
     final selectedView = ref.watch(selectedBattleViewProvider);
-    final battleAsync = ref.watch(
-      battleStateProvider((conversationId: _conversationId, view: selectedView)),
-    );
+    final mode = ModeThemes.of(selectedView);
     final conversationId = ref.watch(selectedConversationIdProvider);
+    if (conversationId == null) {
+      return Scaffold(
+        backgroundColor: mode.background,
+        body: Center(
+          child: CircularProgressIndicator(color: mode.primary),
+        ),
+      );
+    }
+    final battleAsync = ref.watch(
+      battleStateProvider((conversationId: conversationId, view: selectedView)),
+    );
     final messagesAsync = ref.watch(conversationMessagesProvider(conversationId));
-    final isAnalyzing = ref.watch(isAnalyzingProvider);
+    final isAnalyzing = ref.watch(
+      isAnalyzingProvider('$conversationId:${selectedView.name}'),
+    );
     final conversationStartedAt =
         ref.watch(conversationStartedAtProvider(conversationId)).valueOrNull ??
         DateTime.now();
 
     ref.listen(selectedConversationIdProvider, (previous, next) {
       if (previous == next) return;
-      _onConversationChanged();
+      _onConversationChanged(previous);
     });
 
-    final mode = ModeThemes.of(selectedView);
     final messages = messagesAsync.valueOrNull ?? const [];
     // 扇面展示的是「暂存的待发送图片」；发送后图片进入对话历史，扇面收起。
     final screenshotPaths = List<String>.unmodifiable(_stagedImages);
@@ -534,9 +726,6 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                     onSelected: _selectView,
                   ),
                   const SizedBox(height: 8),
-                  // 调试状态栏：实时显示当前正在干什么（测试用，可移除）。
-                  _DebugStatusBar(mode: mode),
-                  const SizedBox(height: 6),
                   ChatComposer(
                     mode: mode,
                     controller: _messageController,
@@ -544,7 +733,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                     onSend: _sendMessage,
                     onAttach: _pickImages,
                     onInputTap: _collapseFan,
-                    isAnalyzing: isAnalyzing,
+                    isAnalyzing: false,
                     pendingCount: _stagedImages.length,
                   ),
                 ],
@@ -633,47 +822,6 @@ class _FloatingModePicker extends StatelessWidget {
           onTap: () => onSelected(BattleView.win),
         ),
       ],
-    );
-  }
-}
-
-/// 调试状态栏：实时显示当前正在干什么（[debugStatusProvider]），
-/// 空闲时显示「就绪」；测试用，正式版可移除。
-class _DebugStatusBar extends ConsumerWidget {
-  const _DebugStatusBar({required this.mode});
-
-  final ModeTheme mode;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final status = ref.watch(debugStatusProvider);
-    final idle = status.isEmpty;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      child: Row(
-        children: [
-          Container(
-            width: 6,
-            height: 6,
-            decoration: BoxDecoration(
-              color: idle ? mode.textMuted : mode.primary,
-              shape: BoxShape.circle,
-            ),
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              idle ? '[调试] 就绪' : '[调试] $status',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: idle ? mode.textMuted.withValues(alpha: 0.6) : mode.textMuted,
-                fontSize: 10.5,
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

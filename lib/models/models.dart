@@ -1,5 +1,6 @@
 export 'ai_config.dart';
 export 'analysis.dart';
+export 'asset.dart';
 export 'battle.dart';
 export 'case.dart';
 export 'enums.dart';

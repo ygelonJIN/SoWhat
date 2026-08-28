@@ -15,6 +15,7 @@ class Case {
   final DateTime? pinnedAt;
   final String? background;
   final DateTime? memoryFinalizedAt;
+  final bool isImported;
   final BattleView lastView;
 
   Case({
@@ -24,6 +25,7 @@ class Case {
     this.pinnedAt,
     this.background,
     this.memoryFinalizedAt,
+    this.isImported = false,
     this.lastView = BattleView.love,
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now();
@@ -51,6 +53,7 @@ class Case {
     Object? pinnedAt = _sentinel,
     Object? background = _sentinel,
     Object? memoryFinalizedAt = _sentinel,
+    Object? isImported = _sentinel,
     Object? lastView = _sentinel,
   }) {
     return Case(
@@ -64,6 +67,7 @@ class Case {
       memoryFinalizedAt: memoryFinalizedAt == _sentinel
           ? this.memoryFinalizedAt
           : memoryFinalizedAt as DateTime?,
+      isImported: isImported == _sentinel ? this.isImported : isImported as bool,
       lastView: lastView == _sentinel ? this.lastView : lastView as BattleView,
     );
   }

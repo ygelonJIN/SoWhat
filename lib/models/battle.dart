@@ -13,6 +13,10 @@ class BattleState {
   final String headline;
   final List<BattleCard> cards;
   final DateTime updatedAt;
+  final String? thinkingContent;
+  final DateTime? thinkingStartedAt;
+  final DateTime? thinkingFinishedAt;
+  final bool thinkingActive;
 
   const BattleState({
     required this.view,
@@ -26,6 +30,10 @@ class BattleState {
     required this.headline,
     required this.cards,
     required this.updatedAt,
+    this.thinkingContent,
+    this.thinkingStartedAt,
+    this.thinkingFinishedAt,
+    this.thinkingActive = false,
   });
 
   factory BattleState.initial([BattleView view = BattleView.love]) {
@@ -56,6 +64,10 @@ class BattleState {
     String? headline,
     List<BattleCard>? cards,
     DateTime? updatedAt,
+    String? thinkingContent,
+    DateTime? thinkingStartedAt,
+    DateTime? thinkingFinishedAt,
+    bool? thinkingActive,
   }) {
     return BattleState(
       view: view ?? this.view,
@@ -69,6 +81,10 @@ class BattleState {
       headline: headline ?? this.headline,
       cards: cards ?? this.cards,
       updatedAt: updatedAt ?? this.updatedAt,
+      thinkingContent: thinkingContent ?? this.thinkingContent,
+      thinkingStartedAt: thinkingStartedAt ?? this.thinkingStartedAt,
+      thinkingFinishedAt: thinkingFinishedAt ?? this.thinkingFinishedAt,
+      thinkingActive: thinkingActive ?? this.thinkingActive,
     );
   }
 

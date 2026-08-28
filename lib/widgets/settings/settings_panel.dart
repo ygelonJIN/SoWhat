@@ -1,8 +1,13 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:share_plus/share_plus.dart';
 
 import '../../models/models.dart';
+import '../../services/conversation_transfer_service.dart';
 import '../../providers/app_providers.dart';
 import '../../screens/ai_config_screen.dart';
 import '../../theme/mode_theme.dart';
@@ -168,7 +173,7 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                   ? _EmptyHistory(mode: mode, hasQuery: query.isNotEmpty)
                   : ListView(
                       // 顶部留白避开悬浮控件，底部留白避开渐变遮罩。
-                      padding: const EdgeInsets.fromLTRB(16, 268, 16, 150),
+                      padding: const EdgeInsets.fromLTRB(16, 268, 16, 220),
                       children: [
                         if (pinned.isNotEmpty) ...[
                           _HistorySectionLabel(mode: mode, text: '置顶'),
@@ -284,8 +289,27 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                 ],
               ),
             ),
+            Positioned(
+              left: 16,
+              right: 16,
+              bottom: 14,
+              child: _SecondaryActionButton(
+                mode: mode,
+                icon: Icons.photo_library_outlined,
+                label: '资产管理',
+                onTap: () => _showAssetManagementPlaceholder(context, mode),
+              ),
+            ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showAssetManagementPlaceholder(BuildContext context, ModeTheme mode) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _AssetManagementScreen(mode: mode),
       ),
     );
   }
@@ -342,7 +366,7 @@ class _RowActionMenu extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
-    final height = 3 * _itemHeight;
+    final height = 4 * _itemHeight;
     // 贴近手指弹出，右 / 下越界时自动收回来。
     final left = touch.dx + _width > size.width - 10
         ? size.width - _width - 10
@@ -386,6 +410,13 @@ class _RowActionMenu extends StatelessWidget {
                   icon: Icons.edit_outlined,
                   label: '重命名',
                   onTap: () => Navigator.of(context).pop('rename'),
+                ),
+                _menuDivider(mode),
+                _MenuAction(
+                  mode: mode,
+                  icon: Icons.ios_share_rounded,
+                  label: '分享',
+                  onTap: () => Navigator.of(context).pop('share'),
                 ),
                 _menuDivider(mode),
                 _MenuAction(
@@ -910,6 +941,217 @@ class _SecondaryActionButton extends StatelessWidget {
 
 /// 单条聊天记录：以日期命名（重命名后显示自定义名称），右侧显示开始时间；
 /// 点击切换对话，长按弹出主题样式操作菜单（置顶 / 重命名 / 删除）。
+class _AssetManagementScreen extends ConsumerStatefulWidget {
+  const _AssetManagementScreen({required this.mode});
+
+  final ModeTheme mode;
+
+  @override
+  ConsumerState<_AssetManagementScreen> createState() => _AssetManagementScreenState();
+}
+
+class _AssetManagementScreenState extends ConsumerState<_AssetManagementScreen> {
+  bool _sortByTitle = false;
+  final Set<String> _selected = {};
+
+  Future<List<_AssetRecord>> _loadAssets() async {
+    final repository = ref.read(appRepositoryProvider);
+    final cases = await repository.watchCases().first;
+    final assets = await repository.watchAssets().first;
+    final records = <_AssetRecord>[];
+    for (final asset in assets) {
+      final related = <Case>[];
+      for (final caseItem in cases) {
+        final messages = await repository.watchMessages(caseItem.id).first;
+        if (messages.any((message) => message.assetPath == asset.path)) related.add(caseItem);
+      }
+      for (final caseItem in related) {
+        records.add(_AssetRecord(asset: asset, caseItem: caseItem));
+      }
+    }
+    records.sort((a, b) => _sortByTitle
+        ? a.displayTitle.compareTo(b.displayTitle)
+        : b.createdAt.compareTo(a.createdAt));
+    return records;
+  }
+
+  Future<void> _deleteSelected(List<_AssetRecord> assets) async {
+    final repository = ref.read(appRepositoryProvider);
+    final ids = <String>[];
+    for (final asset in assets.where((item) => _selected.contains(item.path))) {
+      final saved = await repository.assetByPath(asset.path);
+      if (saved != null) ids.add(saved.id);
+    }
+    await repository.deleteAssets(ids);
+    setState(() => _selected.clear());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = widget.mode;
+    return Scaffold(
+      backgroundColor: mode.background,
+      appBar: AppBar(
+        backgroundColor: mode.background,
+        foregroundColor: mode.text,
+        title: const Text('资产管理'),
+        actions: [
+          IconButton(
+            tooltip: '按标题排序',
+            onPressed: () => setState(() => _sortByTitle = !_sortByTitle),
+            icon: Icon(_sortByTitle ? Icons.sort_by_alpha : Icons.schedule),
+          ),
+        ],
+      ),
+      body: FutureBuilder<List<_AssetRecord>>(
+        future: _loadAssets(),
+        builder: (context, snapshot) {
+          final assets = snapshot.data ?? const <_AssetRecord>[];
+          final total = assets.fold<int>(0, (sum, item) => sum + item.size);
+          final byConversation = <String, int>{};
+          for (final item in assets) {
+            byConversation[item.caseItem.id] =
+                (byConversation[item.caseItem.id] ?? 0) + item.size;
+          }
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+                child: Text(
+                  '图片 ${_formatSize(total)} · ${assets.length} 张 · ${byConversation.length} 个对话',
+                  style: TextStyle(color: mode.textMuted, fontSize: 12),
+                ),
+              ),
+              if (_selected.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: () => _deleteSelected(assets),
+                      icon: Icon(Icons.delete_outline, color: _modeDanger(mode)),
+                      label: Text('删除所选', style: TextStyle(color: _modeDanger(mode))),
+                    ),
+                  ),
+                ),
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                  children: [
+                    for (final caseItem in byConversation.keys.map((id) => assets.firstWhere((a) => a.caseItem.id == id).caseItem)) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(top: 10, bottom: 6),
+                        child: Text(
+                          '${caseItem.displayTitle} · ${_formatSize(byConversation[caseItem.id] ?? 0)}',
+                          style: TextStyle(color: mode.text, fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      for (final asset in assets.where((a) => a.caseItem.id == caseItem.id))
+                        _AssetTile(
+                          asset: asset,
+                          mode: mode,
+                          selected: _selected.contains(asset.path),
+                          onSelected: (value) => setState(() => value ? _selected.add(asset.path) : _selected.remove(asset.path)),
+                          onRename: (title) async {
+                            final current = await ref.read(appRepositoryProvider).assetByPath(asset.path);
+                            if (current != null) {
+                              await ref.read(appRepositoryProvider).renameAsset(current.id, title);
+                              if (mounted) setState(() {});
+                            }
+                          },
+                        ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  String _formatSize(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+    if (bytes >= 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(bytes / 1024).toStringAsFixed(0)} KB';
+  }
+}
+
+class _AssetRecord {
+  const _AssetRecord({required this.asset, required this.caseItem});
+  final Asset asset;
+  final Case caseItem;
+  String get path => asset.path;
+  DateTime get createdAt => asset.createdAt;
+  int get size => asset.sizeBytes;
+  String get displayTitle => asset.displayTitle;
+}
+
+class _AssetTile extends StatelessWidget {
+  const _AssetTile({required this.asset, required this.mode, required this.selected, required this.onSelected, required this.onRename});
+  final _AssetRecord asset;
+  final ModeTheme mode;
+  final bool selected;
+  final ValueChanged<bool> onSelected;
+  final ValueChanged<String> onRename;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: mode.cardBackground,
+      child: ListTile(
+        leading: GestureDetector(
+          onTap: () => showDialog<void>(
+            context: context,
+            builder: (_) => Dialog(
+              child: Image.file(
+                File(asset.path),
+                errorBuilder: (_, _, _) => _MissingAssetIcon(mode: mode),
+              ),
+            ),
+          ),
+          child: Image.file(
+            File(asset.path),
+            width: 52,
+            height: 52,
+            fit: BoxFit.cover,
+            // 文件可能已被移动/删除：显示占位图标而不是报错。
+            errorBuilder: (_, _, _) => _MissingAssetIcon(mode: mode),
+          ),
+        ),
+        title: Text(asset.displayTitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: mode.cardTitle)),
+        subtitle: Text('${_formatDateTime(asset.createdAt)} · ${asset.size ~/ 1024} KB', style: TextStyle(color: mode.cardMuted, fontSize: 11)),
+        trailing: Checkbox(value: selected, onChanged: (value) => onSelected(value ?? false)),
+        onLongPress: () async {
+          final controller = TextEditingController(text: asset.displayTitle);
+          final title = await showDialog<String>(context: context, builder: (_) => AlertDialog(title: const Text('重命名资产'), content: TextField(controller: controller), actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')), TextButton(onPressed: () => Navigator.pop(context, controller.text.trim()), child: const Text('保存'))]));
+          if (title != null && title.isNotEmpty) onRename(title);
+        },
+      ),
+    );
+  }
+
+  String _formatDateTime(DateTime value) => '${value.month}/${value.day} ${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
+}
+
+/// 图片文件缺失时的占位图标（资产已被移动/删除时展示，不中断列表渲染）。
+class _MissingAssetIcon extends StatelessWidget {
+  const _MissingAssetIcon({required this.mode});
+
+  final ModeTheme mode;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 52,
+      height: 52,
+      color: mode.cardBorder.withValues(alpha: 0.35),
+      child: Icon(Icons.broken_image_outlined, size: 22, color: mode.cardMuted),
+    );
+  }
+}
+
 class _ConversationRow extends ConsumerStatefulWidget {
   const _ConversationRow({
     required this.mode,
@@ -977,17 +1219,34 @@ class _ConversationRowState extends ConsumerState<_ConversationRow> {
               child: Row(
                 children: [
                   Flexible(
-                    child: Text(
-                      hasName
-                          ? caseItem.title!
-                          : formatDate(caseItem.createdAt),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: titleColor,
-                        fontSize: 15,
-                        fontWeight: mode.strongWeight,
-                      ),
+                    child: Row(
+                      children: [
+                        if (caseItem.isImported) ...[
+                          Text(
+                            '导入',
+                            style: TextStyle(
+                              color: timeColor,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                        ],
+                        Expanded(
+                          child: Text(
+                            hasName
+                                ? caseItem.title!
+                                : formatDate(caseItem.createdAt),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: titleColor,
+                              fontSize: 15,
+                              fontWeight: mode.strongWeight,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -1019,8 +1278,32 @@ class _ConversationRowState extends ConsumerState<_ConversationRow> {
         await _togglePinned();
       case 'rename':
         await _showRenameDialog();
+      case 'share':
+        await _shareConversation();
       case 'delete':
         await _confirmDelete();
+    }
+  }
+
+  Future<void> _shareConversation() async {
+    try {
+      final file = await const ConversationTransferService().exportConversation(
+        repository: ref.read(appRepositoryProvider),
+        conversationId: caseItem.id,
+      );
+      if (!mounted) return;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          text: 'So What 聊天记录分享包',
+        ),
+      );
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('分享失败：$error')),
+        );
+      }
     }
   }
 
@@ -1063,10 +1346,11 @@ class _ConversationRowState extends ConsumerState<_ConversationRow> {
     try {
       final actions = ref.read(repositoryActionsProvider);
       final repository = ref.read(appRepositoryProvider);
+      final wasCurrent = ref.read(selectedConversationIdProvider) == caseItem.id;
       await actions.deleteConversation(caseItem.id, deleteMemory: deleteMemory);
 
       // 删的是当前打开的对话时，切到最近一条；没有剩余则新建一段空白对话。
-      if (ref.read(selectedConversationIdProvider) == caseItem.id) {
+      if (wasCurrent) {
         final remaining = (await repository.watchCases().first).toList()
           ..sort(_SettingsPanelState._compareCases);
         if (remaining.isNotEmpty) {

@@ -5,8 +5,8 @@ import '../../theme/mode_theme.dart';
 
 /// 全屏聊天式的输入条：文字输入 + 截图附着 + 发送。
 ///
-/// 样式由 `ModeTheme` 驱动（圆角、边框、主色、字体）。`isAnalyzing` 时
-/// 附着 / 发送按钮禁用。`pendingCount > 0` 表示有暂存图片待发送：附着
+/// 样式由 `ModeTheme` 驱动（圆角、边框、主色、字体）。分析过程中仍可切换
+/// 视角和继续暂存图片；`pendingCount > 0` 表示有暂存图片待发送：附着
 /// 按钮显示数量角标，输入框提示语切换为「点发送一起发出」。
 class ChatComposer extends StatelessWidget {
   const ChatComposer({

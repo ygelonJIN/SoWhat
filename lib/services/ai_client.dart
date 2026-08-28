@@ -24,6 +24,9 @@ class AiClient {
   static const _connectTimeout = Duration(seconds: 20);
   static const _responseTimeout = Duration(seconds: 90);
 
+  /// 官方限制：单张图片的 Base64 字符串不能超过 50 MB。
+  static const _maxBase64ImageBytes = 50 * 1024 * 1024;
+
   /// 发一轮对话，返回模型回复的纯文本。
   ///
   /// [images] 为本地图片路径：读取字节 → base64 → 按协议拼进用户消息
@@ -38,12 +41,15 @@ class AiClient {
     List<MessageImage> images = const [],
   }) async {
     final http = HttpClient()..connectionTimeout = _connectTimeout;
+    var payloadBytes = 0;
     try {
       final request = await _buildRequest(config, system, user, images);
       final httpRequest = await http.postUrl(request.uri);
       httpRequest.headers.contentType = ContentType.json;
       request.headers.forEach(httpRequest.headers.set);
-      httpRequest.add(utf8.encode(jsonEncode(request.body)));
+      final body = utf8.encode(jsonEncode(request.body));
+      payloadBytes = body.length;
+      httpRequest.add(body);
 
       final response =
           await httpRequest.close().timeout(_responseTimeout);
@@ -59,8 +65,12 @@ class AiClient {
       rethrow;
     } on TimeoutException {
       throw const AiRequestException('请求超时，请检查网络后重试。');
-    } on SocketException {
-      throw const AiRequestException('无法连接服务器，请检查网络或接口地址。');
+    } on SocketException catch (error) {
+      throw AiRequestException(_connectionError(error, payloadBytes: payloadBytes));
+    } on HttpException catch (error) {
+      throw AiRequestException(_connectionError(error, payloadBytes: payloadBytes));
+    } on HandshakeException catch (error) {
+      throw AiRequestException(_connectionError(error, payloadBytes: payloadBytes));
     } catch (error) {
       throw AiRequestException('请求失败：$error');
     } finally {
@@ -73,6 +83,9 @@ class AiClient {
   /// - [onThinking] 收到增量 thinking（reasoning_content / thinking_delta 等）
   /// - [onContent] 收到增量正文
   /// 不支持流式的服务端会回退为普通 JSON，直接一次性回调。
+  ///
+  /// 连接层失败（部分服务端拒绝 `stream: true` 或长连接被重置）时，
+  /// 自动回退为非流式请求重试一次，保证分析可用；重试仍失败才抛出错误。
   Future<String> chatStream({
     required AiConfig config,
     required String system,
@@ -81,7 +94,50 @@ class AiClient {
     void Function(String deltaThinking)? onThinking,
     void Function(String deltaContent)? onContent,
   }) async {
+    try {
+      return await _chatStreamOnce(
+        config: config,
+        system: system,
+        user: user,
+        images: images,
+        onThinking: onThinking,
+        onContent: onContent,
+      );
+    } on _ConnectionException catch (error) {
+      onThinking?.call('\n流式连接失败，已自动切换为一次性请求重试…');
+      return _fallbackPlain(
+        config: config,
+        system: system,
+        user: user,
+        images: images,
+        onThinking: onThinking,
+        onContent: onContent,
+        payloadBytes: error.payloadBytes,
+      );
+    } on _ServerRejectException catch (error) {
+      onThinking?.call('\n流式请求被服务端拒绝，已自动切换为一次性请求重试…');
+      return _fallbackPlain(
+        config: config,
+        system: system,
+        user: user,
+        images: images,
+        onThinking: onThinking,
+        onContent: onContent,
+        payloadBytes: error.payloadBytes,
+      );
+    }
+  }
+
+  Future<String> _chatStreamOnce({
+    required AiConfig config,
+    required String system,
+    required String user,
+    required List<MessageImage> images,
+    void Function(String deltaThinking)? onThinking,
+    void Function(String deltaContent)? onContent,
+  }) async {
     final http = HttpClient()..connectionTimeout = _connectTimeout;
+    var payloadBytes = 0;
     try {
       final request = await _buildRequest(
         config,
@@ -94,7 +150,9 @@ class AiClient {
       httpRequest.headers.contentType = ContentType.json;
       httpRequest.headers.set('Accept', 'text/event-stream');
       request.headers.forEach(httpRequest.headers.set);
-      httpRequest.add(utf8.encode(jsonEncode(request.body)));
+      final body = utf8.encode(jsonEncode(request.body));
+      payloadBytes = body.length;
+      httpRequest.add(body);
 
       final response = await httpRequest.close().timeout(_responseTimeout);
       final isEventStream =
@@ -102,8 +160,10 @@ class AiClient {
 
       if (response.statusCode != 200) {
         final text = await response.transform(utf8.decoder).join();
-        throw AiRequestException(
-          '接口返回 ${response.statusCode}：${_errorSnippet(text)}',
+        throw _ServerRejectException(
+          response.statusCode,
+          _errorSnippet(text),
+          payloadBytes: payloadBytes,
         );
       }
 
@@ -178,14 +238,66 @@ class AiClient {
       rethrow;
     } on TimeoutException {
       throw const AiRequestException('请求超时，请检查网络后重试。');
-    } on SocketException {
-      throw const AiRequestException('无法连接服务器，请检查网络或接口地址。');
+    } on SocketException catch (error) {
+      throw _ConnectionException(error, payloadBytes: payloadBytes);
+    } on HttpException catch (error) {
+      throw _ConnectionException(error, payloadBytes: payloadBytes);
+    } on HandshakeException catch (error) {
+      throw _ConnectionException(error, payloadBytes: payloadBytes);
     } catch (error) {
-      if (error is AiRequestException) rethrow;
       throw AiRequestException('请求失败：$error');
     } finally {
       http.close(force: true);
     }
+  }
+
+  /// 流式请求在连接层失败后的回退：改发一次性（非流式）请求重试。
+  ///
+  /// 部分服务端不认 `stream: true` 会在连接阶段直接断开；回退后分析仍可用，
+  /// 思考内容改为响应返回后一次性回调。
+  Future<String> _fallbackPlain({
+    required AiConfig config,
+    required String system,
+    required String user,
+    required List<MessageImage> images,
+    void Function(String deltaThinking)? onThinking,
+    void Function(String deltaContent)? onContent,
+    int payloadBytes = 0,
+  }) async {
+    try {
+      final text = await chat(
+        config: config,
+        system: system,
+        user: user,
+        images: images,
+      );
+      final thinking = _extractThinking(config.protocol, text);
+      if (thinking != null && thinking.isNotEmpty) onThinking?.call(thinking);
+      if (text.isNotEmpty) onContent?.call(text);
+      return text;
+    } on AiRequestException catch (error) {
+      throw AiRequestException('${error.message}（已自动重试普通请求，仍失败）');
+    } catch (error) {
+      throw AiRequestException(
+          '${_connectionError(error, payloadBytes: payloadBytes)}（已自动重试普通请求，仍失败）');
+    }
+  }
+
+  /// 把连接层异常转成用户可读的错误信息，附带底层原因便于排查。
+  ///
+  /// [payloadBytes] 非 0 时附带请求体大小：若失败由请求体过大导致，
+  /// 可通过这个数值精确判断服务端限制。
+  String _connectionError(Object error, {int payloadBytes = 0}) {
+    final detail = switch (error) {
+      SocketException(:final message) => message,
+      HttpException(:final message) => message,
+      HandshakeException(:final message) => message,
+      _ => error.toString(),
+    };
+    final payloadHint = payloadBytes > 0
+        ? '，请求体约 ${(payloadBytes / (1024 * 1024)).toStringAsFixed(1)} MB'
+        : '';
+    return '无法连接服务器，请检查网络或接口地址。（$detail$payloadHint）';
   }
 
   /// 测试连接：发一条最小请求，验证 Key / 地址 / 模型可用。
@@ -261,6 +373,9 @@ class AiClient {
   }
 
   /// 把本地图片读成 base64，按协议转成 content 块（无图时返回空列表）。
+  ///
+  /// 文件已被移动/删除、读取失败、或 Base64 超过官方 50 MB 单张限制时，
+  /// 跳过该张，不阻塞整轮分析。
   Future<List<Map<String, dynamic>>> _imageContent(
     AiProtocol protocol,
     List<MessageImage> images,
@@ -268,10 +383,16 @@ class AiClient {
     final blocks = <Map<String, dynamic>>[];
     for (final image in images) {
       final file = File(image.path);
-      if (!await file.exists()) {
-        throw AiRequestException('图片文件不存在，可能已被移动或删除：${image.path}');
+      if (!await file.exists()) continue;
+      // 官方限制针对单张 Base64 字符串；先按字节数预估过滤。
+      final base64Size = (await file.length() + 2) ~/ 3 * 4;
+      if (base64Size > _maxBase64ImageBytes) continue;
+      final List<int> bytes;
+      try {
+        bytes = await file.readAsBytes();
+      } catch (_) {
+        continue;
       }
-      final bytes = await file.readAsBytes();
       final data = base64Encode(bytes);
       final mediaType = _mediaType(image.path);
 
@@ -448,4 +569,28 @@ class AiRequestException implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// 连接层失败（SocketException / HttpException / HandshakeException）的内部标记，
+/// 由 chatStream 捕获后触发非流式回退，不直接暴露给 UI。
+class _ConnectionException implements Exception {
+  final Object cause;
+  final int payloadBytes;
+  const _ConnectionException(this.cause, {this.payloadBytes = 0});
+
+  @override
+  String toString() => cause.toString();
+}
+
+/// 服务端对流式请求返回非 2xx 的内部标记（如不支持 `stream` 参数返回 400），
+/// 由 chatStream 捕获后触发非流式回退。
+class _ServerRejectException implements Exception {
+  final int statusCode;
+  final String detail;
+  final int payloadBytes;
+  const _ServerRejectException(this.statusCode, this.detail,
+      {this.payloadBytes = 0});
+
+  @override
+  String toString() => '接口返回 $statusCode：$detail';
 }

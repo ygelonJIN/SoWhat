@@ -72,10 +72,14 @@ class _BattleCanvasState extends State<BattleCanvas> {
   Widget build(BuildContext context) {
     return Consumer(
       builder: (context, ref, _) {
-        final status = ref.watch(thinkingStatusProvider);
-        final content = ref.watch(thinkingContentProvider);
-        final startedAt = ref.watch(thinkingStartedAtProvider);
-        final expanded = ref.watch(thinkingExpandedProvider);
+        final conversationId = widget.messages.isEmpty
+            ? ref.read(selectedConversationIdProvider) ?? ''
+            : widget.messages.first.conversationId;
+        final thinkingKey = '$conversationId:${widget.mode.view.name}';
+        final status = ref.watch(thinkingStatusProvider(thinkingKey));
+        final content = ref.watch(thinkingContentProvider(thinkingKey));
+        final startedAt = ref.watch(thinkingStartedAtProvider(thinkingKey));
+        final expanded = ref.watch(thinkingExpandedProvider(thinkingKey));
         final showThinking = status != ThinkingStatus.idle;
         return ListView(
           controller: widget.scrollController,
@@ -91,7 +95,7 @@ class _BattleCanvasState extends State<BattleCanvas> {
                   expanded: expanded,
                   startedAt: startedAt,
                   onToggle: () {
-                    ref.read(thinkingExpandedProvider.notifier).state = !expanded;
+                    ref.read(thinkingExpandedProvider(thinkingKey).notifier).state = !expanded;
                   },
                 ),
               ),

@@ -44,6 +44,7 @@ Map<String, dynamic> caseToRow(Case c) => {
   'memory_finalized_at': c.memoryFinalizedAt == null
       ? null
       : _epoch(c.memoryFinalizedAt!),
+  'is_imported': c.isImported ? 1 : 0,
   'last_view': _viewTo(c.lastView),
 };
 
@@ -58,6 +59,7 @@ Case rowToCase(Map<String, dynamic> row) => Case(
   memoryFinalizedAt: row['memory_finalized_at'] == null
       ? null
       : _fromEpoch(row['memory_finalized_at'] as int),
+  isImported: (row['is_imported'] as int? ?? 0) != 0,
   lastView: row['last_view'] == null
       ? BattleView.love
       : _viewFrom(row['last_view'] as int),
@@ -195,6 +197,12 @@ Map<String, dynamic> battleStateToRow(String conversationId, BattleState b) =>
       'headline': b.headline,
       'cards_json': _battleCardsJson(b.cards),
       'updated_at': _epoch(b.updatedAt),
+      'thinking_content': b.thinkingContent,
+      'thinking_started_at':
+          b.thinkingStartedAt == null ? null : _epoch(b.thinkingStartedAt!),
+      'thinking_finished_at':
+          b.thinkingFinishedAt == null ? null : _epoch(b.thinkingFinishedAt!),
+      'thinking_active': b.thinkingActive ? 1 : 0,
     };
 
 BattleState rowToBattleState(Map<String, dynamic> row) => BattleState(
@@ -209,6 +217,14 @@ BattleState rowToBattleState(Map<String, dynamic> row) => BattleState(
   headline: row['headline'] as String,
   cards: _parseBattleCards(row['cards_json'] as String),
   updatedAt: _fromEpoch(row['updated_at'] as int),
+  thinkingContent: row['thinking_content'] as String?,
+  thinkingStartedAt: row['thinking_started_at'] == null
+      ? null
+      : _fromEpoch(row['thinking_started_at'] as int),
+  thinkingFinishedAt: row['thinking_finished_at'] == null
+      ? null
+      : _fromEpoch(row['thinking_finished_at'] as int),
+  thinkingActive: (row['thinking_active'] as int? ?? 0) != 0,
 );
 
 // ── MemoryEntry ─────────────────────────────────────────────────────────
@@ -246,6 +262,7 @@ Map<String, dynamic> memoryEntryToRow(MemoryEntry e) => {
   'created_at': _epoch(e.createdAt),
   'updated_at': e.updatedAt == null ? null : _epoch(e.updatedAt!),
   'is_deleted': e.isDeleted ? 1 : 0,
+  'source_gone': e.sourceGone ? 1 : 0,
 };
 
 MemoryEntry rowToMemoryEntry(Map<String, dynamic> row) => MemoryEntry(
@@ -258,6 +275,7 @@ MemoryEntry rowToMemoryEntry(Map<String, dynamic> row) => MemoryEntry(
       ? null
       : _fromEpoch(row['updated_at'] as int),
   isDeleted: (row['is_deleted'] as int) != 0,
+  sourceGone: (row['source_gone'] as int? ?? 0) != 0,
 );
 
 // ── MemoryProfile ───────────────────────────────────────────────────────
@@ -270,6 +288,26 @@ Map<String, dynamic> memoryProfileToRow(MemoryProfile p) => {
   'growth_summary': p.growthSummary,
   'updated_at': _epoch(p.updatedAt),
 };
+
+// ── Asset ───────────────────────────────────────────────────────────────
+
+Map<String, dynamic> assetToRow(Asset asset) => {
+  'id': asset.id,
+  'path': asset.path,
+  'title': asset.title,
+  'created_at': _epoch(asset.createdAt),
+  'size_bytes': asset.sizeBytes,
+  'mime_type': asset.mimeType,
+};
+
+Asset rowToAsset(Map<String, dynamic> row) => Asset(
+  id: row['id'] as String,
+  path: row['path'] as String,
+  title: row['title'] as String? ?? '',
+  createdAt: _fromEpoch(row['created_at'] as int),
+  sizeBytes: row['size_bytes'] as int? ?? 0,
+  mimeType: row['mime_type'] as String? ?? 'image/jpeg',
+);
 
 // ── AiConfig ────────────────────────────────────────────────────────────
 

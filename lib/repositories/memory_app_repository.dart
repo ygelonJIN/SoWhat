@@ -23,6 +23,9 @@ class MemoryAppRepository implements AppRepository {
 
   MemoryProfile _memory = MemoryProfile.empty();
   AiConfig _aiConfig = const AiConfig();
+  final List<Asset> _assets = [];
+  final StreamController<List<Asset>> _assetController =
+      StreamController<List<Asset>>.broadcast();
 
   MemoryAppRepository() {
     seedDemoData();
@@ -84,6 +87,45 @@ class MemoryAppRepository implements AppRepository {
   Stream<MemoryProfile> watchMemory() async* {
     yield _memory;
     yield* _memoryController.stream;
+  }
+
+  @override
+  Stream<List<Asset>> watchAssets() async* {
+    yield List.unmodifiable(_assets);
+    yield* _assetController.stream;
+  }
+
+  @override
+  Future<Asset?> assetByPath(String path) async {
+    for (final asset in _assets) {
+      if (asset.path == path) return asset;
+    }
+    return null;
+  }
+
+  @override
+  Future<void> saveAsset(Asset asset) async {
+    final index = _assets.indexWhere((item) => item.id == asset.id || item.path == asset.path);
+    if (index >= 0) {
+      _assets[index] = asset;
+    } else {
+      _assets.add(asset);
+    }
+    _assetController.add(List.unmodifiable(_assets));
+  }
+
+  @override
+  Future<void> renameAsset(String assetId, String title) async {
+    final index = _assets.indexWhere((asset) => asset.id == assetId);
+    if (index < 0) return;
+    _assets[index] = _assets[index].copyWith(title: title);
+    _assetController.add(List.unmodifiable(_assets));
+  }
+
+  @override
+  Future<void> deleteAssets(List<String> assetIds) async {
+    _assets.removeWhere((asset) => assetIds.contains(asset.id));
+    _assetController.add(List.unmodifiable(_assets));
   }
 
   @override
@@ -238,6 +280,27 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
+  Future<void> deleteEmptyConversation(String conversationId) async {
+    final messages = _messagesByConversation[conversationId] ?? const <Message>[];
+    if (messages.isEmpty) {
+      _cases.removeWhere((item) => item.id == conversationId);
+      _messagesByConversation.remove(conversationId);
+      _analysesByConversation.remove(conversationId);
+      _emitCases();
+    }
+  }
+
+  @override
+  Future<bool> cleanupEmptyConversation(String conversationId) async {
+    final messages = _messagesByConversation[conversationId] ?? const <Message>[];
+    if (messages.isEmpty) {
+      await deleteEmptyConversation(conversationId);
+      return false;
+    }
+    return true;
+  }
+
+  @override
   Future<void> deleteCase(String conversationId) async {
     _cases.removeWhere((item) => item.id == conversationId);
     _messagesByConversation.remove(conversationId);
@@ -352,8 +415,8 @@ class MemoryAppRepository implements AppRepository {
     final current = _battleStates[conversationId] ?? BattleState.initial(view);
     _battleStates[conversationId] = current.copyWith(
       view: view,
-      headline: _headlineFor(view),
-      cards: const [],
+      headline: current.headline,
+      cards: current.cards,
       updatedAt: DateTime.now(),
     );
     final index = _cases.indexWhere((item) => item.id == conversationId);
@@ -370,6 +433,10 @@ class MemoryAppRepository implements AppRepository {
     required Analysis analysis,
     required List<BattleCard> cards,
     String headline = '',
+    String? thinkingContent,
+    DateTime? thinkingStartedAt,
+    DateTime? thinkingFinishedAt,
+    bool thinkingActive = false,
   }) async {
     _battleStates[analysis.conversationId] = BattleState.initial(
       analysis.view,
@@ -378,8 +445,33 @@ class MemoryAppRepository implements AppRepository {
       headline: headline.isEmpty ? _headlineFor(analysis.view) : headline,
       cards: cards,
       updatedAt: DateTime.now(),
+      thinkingContent: thinkingContent,
+      thinkingStartedAt: thinkingStartedAt,
+      thinkingFinishedAt: thinkingFinishedAt,
+      thinkingActive: thinkingActive,
     );
     _emitBattle(analysis.conversationId);
+  }
+
+  @override
+  Future<void> saveThinkingState({
+    required String conversationId,
+    required BattleView view,
+    String? thinkingContent,
+    DateTime? thinkingStartedAt,
+    DateTime? thinkingFinishedAt,
+    bool thinkingActive = false,
+  }) async {
+    final current = _battleStates[conversationId] ?? BattleState.initial(view);
+    _battleStates[conversationId] = current.copyWith(
+      view: view,
+      thinkingContent: thinkingContent,
+      thinkingStartedAt: thinkingStartedAt,
+      thinkingFinishedAt: thinkingFinishedAt,
+      thinkingActive: thinkingActive,
+      updatedAt: DateTime.now(),
+    );
+    _emitBattle(conversationId);
   }
 
   String _headlineFor(BattleView view) {
@@ -398,6 +490,7 @@ class MemoryAppRepository implements AppRepository {
     _caseController.close();
     _memoryController.close();
     _aiConfigController.close();
+    _assetController.close();
     for (final controller in _battleControllers.values) {
       controller.close();
     }

@@ -54,6 +54,7 @@ class AppDatabase extends GeneratedDatabase {
         pinned_at INTEGER,
         background TEXT,
         memory_finalized_at INTEGER,
+        is_imported INTEGER NOT NULL DEFAULT 0,
         last_view INTEGER NOT NULL DEFAULT 0
       )
     ''');
@@ -106,6 +107,10 @@ class AppDatabase extends GeneratedDatabase {
         headline TEXT NOT NULL,
         cards_json TEXT NOT NULL DEFAULT '[]',
         updated_at INTEGER NOT NULL,
+        thinking_content TEXT,
+        thinking_started_at INTEGER,
+        thinking_finished_at INTEGER,
+        thinking_active INTEGER NOT NULL DEFAULT 0,
         PRIMARY KEY (conversation_id, view)
       )
     ''');
@@ -127,7 +132,18 @@ class AppDatabase extends GeneratedDatabase {
         sources_json TEXT NOT NULL DEFAULT '[]',
         created_at INTEGER NOT NULL,
         updated_at INTEGER,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        source_gone INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS assets (
+        id TEXT PRIMARY KEY NOT NULL,
+        path TEXT NOT NULL UNIQUE,
+        title TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL,
+        size_bytes INTEGER NOT NULL DEFAULT 0,
+        mime_type TEXT NOT NULL DEFAULT 'image/jpeg'
       )
     ''');
     await customStatement('''

@@ -211,14 +211,13 @@ class MemoryScreen extends ConsumerWidget {
     final repository = ref.read(appRepositoryProvider);
     final service = ref.read(memoryGenerationServiceProvider);
     final cases = await repository.watchCases().first;
-    final activeCases = cases.where((c) => !c.hasFinalizedMemory).toList();
     final analysesByConversation = <String, List<Analysis>>{};
-    for (final caseItem in activeCases) {
+    for (final caseItem in cases) {
       analysesByConversation[caseItem.id] =
           await repository.watchAnalyses(caseItem.id).first;
     }
     final cards = service.collectUnprocessed(
-      cases: activeCases,
+      cases: cases,
       analysesOf: (conversationId) =>
           analysesByConversation[conversationId] ?? const [],
     );
@@ -236,6 +235,19 @@ class MemoryScreen extends ConsumerWidget {
 
     final memory = ref.read(memoryProfileProvider).valueOrNull ??
         MemoryProfile.empty();
+
+    // 先展示本次会被写入的对话，用户确认后才调用模型。
+    final involvedConversationIds = cards.map((c) => c.conversationId).toSet();
+    final involvedCases = cases
+        .where((c) => involvedConversationIds.contains(c.id))
+        .toList();
+    final shouldContinue = await _confirmMemoryUpdate(
+      context,
+      mode,
+      involvedCases,
+    );
+    if (!shouldContinue || !context.mounted) return;
+
     final prompt = service.buildPrompt(memory: memory, cards: cards);
 
     // 生成中：模态加载框，期间不可关闭。
@@ -264,12 +276,9 @@ class MemoryScreen extends ConsumerWidget {
       await repository.markAnalysesProcessed(
         cards.map((c) => c.analysisId).toSet().toList(),
       );
-      final involvedConversationIds = cards
-          .map((c) => c.conversationId)
-          .toSet()
-          .toList();
-      await repository.finalizeConversationsForMemory(involvedConversationIds);
-
+      await repository.finalizeConversationsForMemory(
+        involvedConversationIds.toList(),
+      );
       if (!context.mounted) return;
       Navigator.of(context).pop(); // 关加载框
       _showMessageDialog(
@@ -290,6 +299,63 @@ class MemoryScreen extends ConsumerWidget {
         body: '$error',
       );
     }
+  }
+
+  Future<bool> _confirmMemoryUpdate(
+    BuildContext context,
+    ModeTheme mode,
+    List<Case> cases,
+  ) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (_) => AlertDialog(
+        backgroundColor: mode.cardBackground,
+        title: Text('确认更新长期记忆', style: TextStyle(color: mode.cardTitle)),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 300),
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '本次将使用以下未归档对话中已有的全部模式分析卡片，统一生成长期记忆。成功后这些对话将被锁定，不再重复更新。',
+                  style: TextStyle(color: mode.cardBody, height: 1.5),
+                ),
+                const SizedBox(height: 14),
+                for (final caseItem in cases)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.chat_bubble_outline, size: 15, color: mode.primary),
+                        const SizedBox(width: 7),
+                        Expanded(
+                          child: Text(
+                            '${caseItem.displayTitle}  ·  ${formatDate(caseItem.createdAt)} ${formatTime(caseItem.createdAt)}',
+                            style: TextStyle(color: mode.cardBody, fontSize: 13),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text('取消', style: TextStyle(color: mode.cardMuted)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text('确认更新', style: TextStyle(color: mode.primary, fontWeight: FontWeight.w700)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
   }
 
   /// 主题化信息弹窗（成功 / 失败 / 引导提示共用）。
@@ -494,8 +560,9 @@ class _MemoryEntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meta = _kindMeta(entry.kind);
-    final sourceGone = entry.sources.isNotEmpty &&
-        entry.sources.every((s) => !existingIds.contains(s.conversationId));
+    final sourceGone = entry.sourceGone ||
+        (entry.sources.isNotEmpty &&
+            entry.sources.every((s) => !existingIds.contains(s.conversationId)));
     final first = entry.sources.isNotEmpty ? entry.sources.first : null;
 
     return Material(
@@ -557,14 +624,7 @@ class _MemoryEntryCard extends StatelessWidget {
                               fontSize: 11,
                             ),
                           ),
-                          if (entry.sources.length > 1)
-                            Text(
-                              ' 等 ${entry.sources.length} 处',
-                              style: TextStyle(
-                                color: mode.cardMuted,
-                                fontSize: 11,
-                              ),
-                            ),
+
                         ],
                       ],
                     ),

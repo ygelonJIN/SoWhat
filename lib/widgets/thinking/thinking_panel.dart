@@ -13,6 +13,7 @@ import '../../theme/mode_theme.dart';
 /// - 点击头部可展开/收起；默认展开，完成后自动收起
 /// - 内容区最大高度 260，内部可滚动；默认锁定底部跟随新增内容
 /// - 用户向上滑动 → 解除锁定；再次滑到底部 → 重新锁定
+/// - 面板是否显示由上层按对话与模式保存，切换页面或视角不会主动丢失已完成内容
 class ThinkingPanel extends StatefulWidget {
   const ThinkingPanel({
     super.key,

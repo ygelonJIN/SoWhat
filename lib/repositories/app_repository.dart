@@ -8,6 +8,11 @@ abstract class AppRepository {
   Stream<BattleState> watchBattleState(String conversationId, BattleView view);
   Stream<MemoryProfile> watchMemory();
   Stream<AiConfig> watchAiConfig();
+  Stream<List<Asset>> watchAssets();
+  Future<Asset?> assetByPath(String path);
+  Future<void> saveAsset(Asset asset);
+  Future<void> renameAsset(String assetId, String title);
+  Future<void> deleteAssets(List<String> assetIds);
 
   /// 指定对话开始的时间（右上角展示，不随当前时刻变动）。
   Stream<DateTime> watchConversationStartedAt(String conversationId);
@@ -15,6 +20,10 @@ abstract class AppRepository {
   Future<void> seedDemoData();
   Future<Case> upsertCase(Case caseItem);
   Future<void> deleteCase(String conversationId);
+  Future<void> deleteEmptyConversation(String conversationId);
+
+  /// 清理没有任何消息的对话，并返回仍然存在的对话 id。
+  Future<bool> cleanupEmptyConversation(String conversationId);
 
   /// 置顶 / 取消置顶一段对话。
   Future<Case> setCasePinned(String caseId, bool pinned);
@@ -44,6 +53,20 @@ abstract class AppRepository {
     required Analysis analysis,
     required List<BattleCard> cards,
     String headline = '',
+    String? thinkingContent,
+    DateTime? thinkingStartedAt,
+    DateTime? thinkingFinishedAt,
+    bool thinkingActive = false,
+  });
+
+  /// 保存思考过程到当前视角的 BattleState（分析进行中实时调用）。
+  Future<void> saveThinkingState({
+    required String conversationId,
+    required BattleView view,
+    String? thinkingContent,
+    DateTime? thinkingStartedAt,
+    DateTime? thinkingFinishedAt,
+    bool thinkingActive = false,
   });
 
   void dispose();
