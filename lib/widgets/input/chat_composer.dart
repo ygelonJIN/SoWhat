@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/enums.dart';
+import '../../theme/fold_decoration.dart';
 import '../../theme/mode_theme.dart';
 
 /// 全屏聊天式的输入条：文字输入 + 截图附着 + 发送。
@@ -21,6 +22,7 @@ class ChatComposer extends StatelessWidget {
     required this.onInputTap,
     this.isAnalyzing = false,
     this.pendingCount = 0,
+    this.pendingAlreadySent = false,
   });
 
   final ModeTheme mode;
@@ -34,17 +36,27 @@ class ChatComposer extends StatelessWidget {
   /// 暂存的待发送图片数量（>0 时显示角标并切换提示语）。
   final int pendingCount;
 
+  /// 当前模式是否已经发送过这批图片（发送后该模式的扇面不再显示图片，
+  /// 但图片仍保留给其他模式复用）。
+  final bool pendingAlreadySent;
+
   @override
   Widget build(BuildContext context) {
     final hasPending = pendingCount > 0;
+    final hintText = !hasPending
+        ? '上传截图，或把对话贴进来'
+        : pendingAlreadySent
+        ? '这 $pendingCount 张图片已在本模式发送过，可在其他模式再次发送'
+        : '已选 $pendingCount 张图片，点发送一起发出';
     return Material(
       color: mode.chipBackground,
-      shape: RoundedRectangleBorder(
+      shape: FoldShape(
         borderRadius: mode.inputRadius,
         side: BorderSide(
           color: mode.chipBorder.withValues(alpha: 0.7),
           width: 1,
         ),
+        fold: mode.cornerFold,
       ),
       elevation: 2,
       shadowColor: Colors.black.withValues(alpha: 0.14),
@@ -74,9 +86,7 @@ class ChatComposer extends StatelessWidget {
           textInputAction: TextInputAction.newline,
           onTap: onInputTap,
           decoration: InputDecoration(
-            hintText: hasPending
-                ? '已选 $pendingCount 张图片，点发送一起发出'
-                : '上传截图，或把对话贴进来',
+            hintText: hintText,
             hintStyle: TextStyle(
               color: mode.textMuted,
               fontSize: hasPending ? 12.5 : 13,
@@ -128,6 +138,14 @@ class _ActionChipButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final inkBorderRadius = mode.cornerFold ? null : mode.chipRadius;
+    final inkCustomBorder = mode.cornerFold
+        ? FoldShape(
+            borderRadius: BorderRadius.zero,
+            side: BorderSide.none,
+            fold: true,
+          )
+        : null;
     return Stack(
       clipBehavior: Clip.none,
       children: [
@@ -135,7 +153,7 @@ class _ActionChipButton extends StatelessWidget {
           color: onPressed == null
               ? mode.actionChipBackground.withValues(alpha: 0.38)
               : mode.actionChipBackground,
-          shape: RoundedRectangleBorder(
+          shape: FoldShape(
             borderRadius: mode.chipRadius,
             side: BorderSide(
               color: mode.actionChipBorder.withValues(
@@ -143,10 +161,13 @@ class _ActionChipButton extends StatelessWidget {
               ),
               width: 1,
             ),
+            fold: mode.cornerFold,
           ),
+          clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: onPressed,
-            borderRadius: mode.chipRadius,
+            borderRadius: inkBorderRadius,
+            customBorder: inkCustomBorder,
             child: SizedBox(
               width: 40,
               height: 40,

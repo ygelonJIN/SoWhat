@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 
 import '../models/models.dart';
+import 'fold_decoration.dart';
 
 /// 单个模式的完整视觉体系。
 ///
 /// 三模式共用同一套「令牌 → 用法」逻辑（背景 / 表面 / 卡片 / 输入框 / 按钮 /
 /// 文字的可读性规则完全一致，任何页面在三模式下都可读），只保留各自的配色
-/// 个性与形状特征：为爱=圆润暖绿、论对错=方正暗金、比输赢=斜切黑白。
+/// 个性与形状特征：为爱=圆润暖绿、论对错=方正暗金、比输赢=切角撕角黑白（
+/// 用 FoldBorder/CutBox 右上角切角，非斜切）。
 class ModeTheme {
   const ModeTheme({
     required this.view,
@@ -40,6 +42,7 @@ class ModeTheme {
     this.fontFamily,
     this.fontFamilyFallback = const <String>[],
     this.strongWeight = FontWeight.w800,
+    this.cornerFold = false,
   });
 
   final BattleView view;
@@ -106,6 +109,12 @@ class ModeTheme {
   final List<String> fontFamilyFallback;
   final FontWeight strongWeight;
 
+  /// 是否为「切角·撕开一角」角型（比输赢专用，true=右上角切角）。
+  ///
+  /// 为 false（为爱圆角、论对错直角）时，所有用到 [`FoldBorder`]/[`CutBox`]
+  /// 的地方退化为普通圆角矩形，行为和原来完全一致。
+  final bool cornerFold;
+
   bool get isDark =>
       ThemeData.estimateBrightnessForColor(background) == Brightness.dark;
 
@@ -148,23 +157,23 @@ class ModeTheme {
         filled: true,
         fillColor: chipBackground,
         hintStyle: TextStyle(color: textMuted),
-        border: OutlineInputBorder(
-          borderRadius: inputRadius,
+        border: ShapedInputBorder(
+          shape: FoldShape(borderRadius: inputRadius, fold: cornerFold),
           borderSide: BorderSide.none,
         ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: inputRadius,
+        enabledBorder: ShapedInputBorder(
+          shape: FoldShape(borderRadius: inputRadius, fold: cornerFold),
           borderSide: BorderSide.none,
         ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: inputRadius,
+        focusedBorder: ShapedInputBorder(
+          shape: FoldShape(borderRadius: inputRadius, fold: cornerFold),
           borderSide: BorderSide.none,
         ),
       ),
       cardTheme: CardThemeData(
         elevation: 0,
         color: surface,
-        shape: RoundedRectangleBorder(borderRadius: cardRadius),
+        shape: FoldShape(borderRadius: cardRadius, fold: cornerFold),
       ),
       textSelectionTheme: TextSelectionThemeData(
         cursorColor: primary,
@@ -175,6 +184,11 @@ class ModeTheme {
         behavior: SnackBarBehavior.floating,
         backgroundColor: surface,
         contentTextStyle: TextStyle(color: text),
+        shape: FoldShape(
+          borderRadius: chipRadius,
+          fold: cornerFold,
+          side: BorderSide(color: cardBorder, width: 1),
+        ),
       ),
       dividerColor: textMuted.withValues(alpha: 0.25),
     );
@@ -251,10 +265,11 @@ abstract final class ModeThemes {
     strongWeight: FontWeight.w600,
   );
 
-  /// 比输赢：黑白对决 · 斜切 · 重磅黑体（思源黑体）——「胜负之局」（浅色基底）。
+  /// 比输赢：黑白对决 · 系统默认字体 ——「胜负之局」（浅色基底）。
   ///
   /// 统一为浅底深字（与论对错的深底浅字互为反相）：背景浅灰、卡片与面板
   /// 用白/浅灰，主色与发送按钮保持黑色，保留「黑白对决」的个性。
+  /// 角型样式待用户从 shapes.html 中选定后替换（当前暂保留旧斜切近似值）。
   static const win = ModeTheme(
     view: BattleView.win,
     title: '比输赢',
@@ -299,8 +314,11 @@ abstract final class ModeThemes {
     actionChipBorder: Color(0xFF16161A),
     inputBorderColor: Colors.transparent,
     inputBorderWidth: 0,
-    fontFamily: 'Noto Sans SC',
+    // 比输赢统一用系统默认字体（iOS 苹方 / Android 系统 / 桌面系统）：
+    // 不设 fontFamily，即不覆盖 app 级字体，交给平台默认。
+    fontFamily: null,
     strongWeight: FontWeight.w900,
+    cornerFold: true,
   );
 
   static final Map<BattleView, ModeTheme> _byView = {

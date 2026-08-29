@@ -515,7 +515,9 @@ class AppRepositoryActions {
           expanded: false,
         );
         ref.read(isAnalyzingProvider(stateKey).notifier).state = false;
-        if (_activeViewKey == stateKey) rethrow;
+        // 无论用户当前停留在哪个模式，都把失败抛给调用方展示，
+        // 避免「思考完成但没有输出也没有错误」的静默失败。
+        rethrow;
       }
     } finally {
       _analysisCancellations.remove(viewKey);

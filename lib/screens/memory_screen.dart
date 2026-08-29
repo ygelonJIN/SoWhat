@@ -4,12 +4,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../providers/app_providers.dart';
 import '../services/ai_client.dart';
+import '../theme/fold_decoration.dart';
 import '../theme/mode_theme.dart';
 import '../utils/format.dart';
 import '../widgets/buttons/pill_button.dart';
 import '../widgets/feedback/feedback.dart';
 import '../widgets/thinking/thinking_panel.dart';
 import 'ai_config_screen.dart';
+
+/// 内容区顶部/底部留白：避开顶部浮层（返回 + 标题）与底部悬浮条
+/// （快捷滑动条 + 更新记忆）。空态垂直居中也按它计算。
+const double _kMemoryListTopInset = 130;
+const double _kMemoryListBottomInset = 210;
 
 /// 长期记忆档案页（产品文档第 4 章，主打功能）。
 ///
@@ -44,9 +50,40 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
   DateTime? _memoryStartedAt;
   bool _memoryGenerating = false;
 
+  /// 底部「快捷滑动条」是否展开（展示除当前外其他板块的小标题）。
+  bool _navExpanded = false;
+
+  /// 内容滚动控制器：跟踪当前浏览到的板块，让快捷滑动条跟随变化。
+  final _scrollController = ScrollController();
+
+  /// 各板块标题的定位锚点（按板块 id 缓存，供滚动定位与跳转）。
+  final Map<String, GlobalKey> _sectionKeys = {};
+
+  /// 当前浏览到的板块标题（快捷滑动条上显示的小标题）。
+  String _currentSection = '';
+
+  /// 本次渲染的板块导航列表（按页面顺序排列）。
+  List<({String id, String label, GlobalKey key})> _sections = const [];
+
+  GlobalKey _sectionKey(String id) =>
+      _sectionKeys.putIfAbsent(id, GlobalKey.new);
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onMemoryScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final mode = ModeThemes.of(ref.watch(selectedBattleViewProvider));
+    final selectedView = ref.watch(selectedBattleViewProvider);
+    final mode = ModeThemes.of(selectedView);
     final memory =
         ref.watch(memoryProfileProvider).valueOrNull ?? MemoryProfile.empty();
     final cases = ref.watch(casesProvider).valueOrNull ?? const <Case>[];
@@ -59,10 +96,59 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
       grouped.putIfAbsent(entry.kind, () => []).add(entry);
     }
 
+    // 有内容的板块。
+    final boards = [
+      for (final k in _kinds)
+        if ((grouped[k] ?? const <MemoryEntry>[]).isNotEmpty) k,
+    ];
+
     final hasOverview =
         (memory.userSummary?.isNotEmpty ?? false) ||
         (memory.partnerSummary?.isNotEmpty ?? false) ||
-        (memory.relationshipSummary?.isNotEmpty ?? false);
+        (memory.relationshipSummary?.isNotEmpty ?? false) ||
+        (memory.growthSummary?.isNotEmpty ?? false);
+
+    // 板块导航列表：概况四卡 + 有内容的九板块，按页面顺序排列；
+    // 快捷滑动条按它来显示当前小标题、展开跳转。
+    // 概况 id 用 summary_ 前缀，避免与九板块的 kind.name（如 growth）冲突。
+    final userSummary = memory.userSummary?.trim() ?? '';
+    final partnerSummary = memory.partnerSummary?.trim() ?? '';
+    final relationshipSummary = memory.relationshipSummary?.trim() ?? '';
+    final growthSummary = memory.growthSummary?.trim() ?? '';
+    _sections = [
+      if (hasOverview) ...[
+        if (userSummary.isNotEmpty)
+          (
+            id: 'summary_user',
+            label: '我的概况',
+            key: _sectionKey('summary_user'),
+          ),
+        if (partnerSummary.isNotEmpty)
+          (
+            id: 'summary_partner',
+            label: 'TA 的概况',
+            key: _sectionKey('summary_partner'),
+          ),
+        if (relationshipSummary.isNotEmpty)
+          (
+            id: 'summary_relation',
+            label: '关系概况',
+            key: _sectionKey('summary_relation'),
+          ),
+        if (growthSummary.isNotEmpty)
+          (
+            id: 'summary_growth',
+            label: '成长概况',
+            key: _sectionKey('summary_growth'),
+          ),
+      ],
+      for (final kind in boards)
+        (id: kind.name, label: _kindMeta(kind).label, key: _sectionKey(kind.name)),
+    ];
+    if (_currentSection.isEmpty ||
+        !_sections.any((s) => s.label == _currentSection)) {
+      _currentSection = _sections.isEmpty ? '' : _sections.first.label;
+    }
 
     return Theme(
       data: mode.themeData,
@@ -71,39 +157,65 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
         body: Stack(
           children: [
             Positioned.fill(
-            child: ListView(
-              // 顶部留白避开浮层标题，底部留白避开渐变遮罩。
-              padding: const EdgeInsets.fromLTRB(16, 130, 16, 150),
-              children: [
-                // 「更新记忆」固定在档案最顶部：空档案时也要能点。
-                _UpdateMemoryButton(
-                  mode: mode,
-                  loading: _memoryGenerating,
-                  onTap: () => _runMemoryUpdate(context, mode),
+              child: ListView(
+                controller: _scrollController,
+                // 顶部留白避开浮层标题，底部留白避开底部悬浮条与渐变遮罩。
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  _kMemoryListTopInset,
+                  16,
+                  _kMemoryListBottomInset,
                 ),
-                if (_memoryStatus != ThinkingStatus.idle) ...[
-                  const SizedBox(height: 10),
-                  ThinkingPanel(
-                    mode: mode,
-                    status: _memoryStatus,
-                    content: _memoryContent,
-                    expanded: _memoryExpanded,
-                    startedAt: _memoryStartedAt,
-                    onToggle: () =>
-                        setState(() => _memoryExpanded = !_memoryExpanded),
-                  ),
-                ],
-                const SizedBox(height: 22),
-                if (hasOverview || entries.isNotEmpty) ...[
-                  _OverviewCard(mode: mode, memory: memory),
-                ] else
-                  _MemoryEmptyState(mode: mode),
-                const SizedBox(height: 14),
-                for (final kind in _kinds)
-                  if (grouped[kind] case final list? when list.isNotEmpty) ...[
-                    _SectionLabel(mode: mode, kind: kind),
-                    const SizedBox(height: 8),
-                    ...list.map(
+                children: [
+                  if (_memoryStatus != ThinkingStatus.idle) ...[
+                    ThinkingPanel(
+                      mode: mode,
+                      status: _memoryStatus,
+                      content: _memoryContent,
+                      expanded: _memoryExpanded,
+                      startedAt: _memoryStartedAt,
+                      onToggle: () =>
+                          setState(() => _memoryExpanded = !_memoryExpanded),
+                    ),
+                    const SizedBox(height: 22),
+                  ],
+                  if (hasOverview || entries.isNotEmpty) ...[
+                    if (hasOverview)
+                      // KeepAlive：ListView 默认只挂载可视区附近的子项，
+                      // 滚远后概况卡的锚点会被卸载，跳转就会失效。
+                      KeepAlive(
+                        keepAlive: true,
+                        child: _OverviewSection(
+                          mode: mode,
+                          memory: memory,
+                          headingKeys: {
+                            'summary_user': _sectionKey('summary_user'),
+                            'summary_partner': _sectionKey('summary_partner'),
+                            'summary_relation': _sectionKey(
+                              'summary_relation',
+                            ),
+                            'summary_growth': _sectionKey('summary_growth'),
+                          },
+                        ),
+                      ),
+                  ] else
+                    _MemoryEmptyState(mode: mode),
+                  const SizedBox(height: 22),
+                  for (final kind in boards) ...[
+                    // KeepAlive：让板块标题锚点常驻，滚远后仍能定位跳转。
+                    KeepAlive(
+                      keepAlive: true,
+                      child: KeyedSubtree(
+                        key: _sectionKey(kind.name),
+                        child: _BoardHeader(
+                          mode: mode,
+                          kind: kind,
+                          count: grouped[kind]!.length,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 9),
+                    ...grouped[kind]!.map(
                       (entry) => Padding(
                         padding: const EdgeInsets.only(bottom: 8),
                         child: _MemoryEntryCard(
@@ -117,96 +229,191 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                     ),
                     const SizedBox(height: 10),
                   ],
-              ],
-            ),
-          ),
-          // 顶部渐隐：内容滚动到浮层标题下方时过渡淡出。
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 110,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      mode.background.withValues(alpha: 1),
-                      mode.background.withValues(alpha: 0.9),
-                      mode.background.withValues(alpha: 0),
-                    ],
-                    stops: const [0.0, 0.6, 1.0],
-                  ),
-                ),
+                ],
               ),
             ),
-          ),
-          // 底部渐变遮罩。
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 120,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
-                      mode.background.withValues(alpha: 1),
-                      mode.background.withValues(alpha: 0.85),
-                      mode.background.withValues(alpha: 0),
-                    ],
-                    stops: const [0.0, 0.5, 1.0],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // 顶部浮层：返回 + 标题 + 最近更新。
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 6, 16, 6),
-                child: Row(
-                  children: [
-                    PillButton(
-                      mode: mode,
-                      icon: Icons.arrow_back_rounded,
-                      label: '',
-                      highlight: true,
-                      onTap: () => Navigator.of(context).pop(),
+            // 顶部渐隐：内容滚动到浮层标题下方时过渡淡出。
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 110,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        mode.background.withValues(alpha: 1),
+                        mode.background.withValues(alpha: 0.9),
+                        mode.background.withValues(alpha: 0),
+                      ],
+                      stops: const [0.0, 0.6, 1.0],
                     ),
-                    const SizedBox(width: 10),
-                    Text(
-                      '记忆档案',
-                      style: TextStyle(
-                        color: mode.text,
-                        fontSize: 20,
-                        fontWeight: mode.strongWeight,
+                  ),
+                ),
+              ),
+            ),
+            // 底部渐变遮罩。
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 160,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        mode.background.withValues(alpha: 1),
+                        mode.background.withValues(alpha: 0.85),
+                        mode.background.withValues(alpha: 0),
+                      ],
+                      stops: const [0.0, 0.5, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // 底部悬浮条：板块快捷跳转（聊天页模式按钮同款样式）+ 更新记忆，
+            // 与聊天页输入区同款布局，悬浮在内容上方。
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      if (_sections.isNotEmpty) ...[
+                        // 与聊天页「模式按钮 → 输入框」的间距完全一致。
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 10),
+                          child: Align(
+                            alignment: Alignment.centerRight,
+                            child: _SectionNavigator(
+                              mode: mode,
+                              currentLabel: _currentSection,
+                              expanded: _navExpanded,
+                              onToggle: () => setState(
+                                () => _navExpanded = !_navExpanded,
+                              ),
+                              options: [
+                                for (final s in _sections)
+                                  if (s.label != _currentSection)
+                                    (
+                                      label: s.label,
+                                      onTap: () => _jumpToSection(s.id),
+                                    ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+                      _UpdateMemoryButton(
+                        mode: mode,
+                        loading: _memoryGenerating,
+                        onTap: () => _runMemoryUpdate(context, mode),
                       ),
-                    ),
-                    const Spacer(),
-                    Text(
-                      '共 ${entries.length} 条',
-                      style: TextStyle(color: mode.textMuted, fontSize: 12),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+            // 顶部浮层：返回 + 标题 + 最近更新。
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 6, 16, 6),
+                  child: Row(
+                    children: [
+                      PillButton(
+                        mode: mode,
+                        icon: Icons.arrow_back_rounded,
+                        label: '',
+                        highlight: true,
+                        onTap: () => Navigator.of(context).pop(),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        '记忆档案',
+                        style: TextStyle(
+                          color: mode.text,
+                          fontSize: 20,
+                          fontWeight: mode.strongWeight,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '共 ${entries.length} 条',
+                        style: TextStyle(color: mode.textMuted, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+  }
+
+  /// 滚动时跟踪当前浏览到的板块：标题进入屏幕上方 1/3 即视为当前板块
+  /// （此时标题仍可见、未被顶部浮层遮挡），快捷滑动条随之更新。
+  void _onMemoryScroll() {
+    if (!mounted || !_scrollController.hasClients) return;
+    final topLine = MediaQuery.sizeOf(context).height / 3;
+    String? current;
+    for (final s in _sections) {
+      final ctx = s.key.currentContext;
+      if (ctx == null) continue;
+      final box = ctx.findRenderObject();
+      if (box is! RenderBox) continue;
+      if (box.localToGlobal(Offset.zero).dy <= topLine) {
+        current = s.label;
+      } else {
+        break;
+      }
+    }
+    if (current != null && current != _currentSection) {
+      setState(() => _currentSection = current!);
+    }
+  }
+
+  /// 跳转到指定板块：手动计算目标偏移，让该板块标题停在距屏幕顶部约 18%
+  /// 处（避开悬浮的返回栏），再收起展开列表。
+  void _jumpToSection(String id) {
+    setState(() => _navExpanded = false);
+    final ctx = _sectionKeys[id]?.currentContext;
+    if (ctx == null || !_scrollController.hasClients) return;
+    final box = ctx.findRenderObject();
+    if (box is! RenderBox) return;
+    final globalTop = box.localToGlobal(Offset.zero).dy;
+    final target =
+        globalTop + _scrollController.offset -
+        MediaQuery.sizeOf(context).height * 0.18;
+    final clamped = target.clamp(
+      0.0,
+      _scrollController.position.maxScrollExtent,
+    );
+    _scrollController.animateTo(
+      clamped,
+      duration: const Duration(milliseconds: 380),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   /// 点「更新记忆」：把全部未消化分析卡片发给 AI（小米 MiMo），
@@ -282,17 +489,42 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
       _memoryStartedAt = startedAt;
     });
 
-    try {
+    // 思考过程与聊天页一致：流式增量需要累积拼接，否则思考框只会显示
+    // 最后一段增量（看起来只有一行）。
+    final thinkingBuffer = StringBuffer();
+
+    /// 失败统一处理：思考框收起到「思考完成」，弹出错误弹窗。
+    void showFailure(Object error) {
+      if (!context.mounted) return;
+      setState(() {
+        _memoryGenerating = false;
+        _memoryStatus = ThinkingStatus.done;
+        _memoryExpanded = false;
+      });
+      _showMessageDialog(
+        context,
+        mode,
+        icon: Icons.error_outline,
+        title: '更新失败',
+        body: error is FormatException ? error.message : '$error',
+      );
+    }
+
+    /// 生成 → 解析 → 落库 → 成功弹窗。解析失败会抛 [FormatException]。
+    Future<void> generateAndSave(String userMessage) async {
       // 记忆生成与分析共用同一条「流式优先 + 连接失败自动回退」路径，
       // 可靠性和分析一致。输出是较长的 JSON（四份概况 + 增量条目），
       // 取一个能容纳完整输出的 maxTokens 上限。
       final raw = await const AiClient().chatStream(
         config: config,
         system: prompt,
-        user: '请按上述要求生成记忆档案，只输出 JSON。',
+        user: userMessage,
         maxTokens: 8192,
         onThinking: (delta) {
-          if (mounted) setState(() => _memoryContent = delta);
+          thinkingBuffer.write(delta);
+          if (mounted) {
+            setState(() => _memoryContent = thinkingBuffer.toString());
+          }
         },
       );
       final result = service.parseResponse(response: raw, cards: cards);
@@ -324,34 +556,32 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
         title: '记忆已更新',
         body: '已写入 ${result.entries.length} 条档案条目，并重新生成四份档案概况。',
       );
-    } on FormatException catch (error) {
+    }
+
+    try {
+      await generateAndSave('请按上述要求生成记忆档案，只输出 JSON。');
+    } on FormatException catch (firstError) {
+      // 首次输出可能超长被截断（四份概况 + 增量条目超出输出上限）：
+      // 用「精简输出」提示自动重试一次。解析失败发生在保存之前，
+      // 重试不会造成重复写入。
       if (!context.mounted) return;
       setState(() {
-        _memoryGenerating = false;
-        _memoryStatus = ThinkingStatus.done;
-        _memoryExpanded = false;
+        _memoryStatus = ThinkingStatus.thinking;
+        _memoryExpanded = true;
       });
-      _showMessageDialog(
-        context,
-        mode,
-        icon: Icons.error_outline,
-        title: '更新失败',
-        body: error.message,
-      );
+      try {
+        await generateAndSave(
+          '上次生成的 JSON 不完整（可能被截断）。请重新生成，务必精简输出：'
+          '四份概况分点压缩到最短、条目一句话一条，确保 JSON 完整闭合、不超过输出上限。'
+          '只输出 JSON。',
+        );
+      } on FormatException catch (_) {
+        showFailure(firstError);
+      } catch (error) {
+        showFailure(error);
+      }
     } catch (error) {
-      if (!context.mounted) return;
-      setState(() {
-        _memoryGenerating = false;
-        _memoryStatus = ThinkingStatus.done;
-        _memoryExpanded = false;
-      });
-      _showMessageDialog(
-        context,
-        mode,
-        icon: Icons.error_outline,
-        title: '更新失败',
-        body: '$error',
-      );
+      showFailure(error);
     }
   }
 
@@ -464,13 +694,20 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
   }
 }
 
-/// 档案概况区：大标题「档案概况」下方，用两张独立卡片分别展示「你」和「他」；
-/// 若有关系状态 / 成长轨迹，再并列一张概况卡。
-class _OverviewCard extends StatelessWidget {
-  const _OverviewCard({required this.mode, required this.memory});
+/// 档案概况区：四张概况卡（我的概况 / TA 的概况 / 关系概况 / 成长概况），
+/// 卡内首行是带主题色下划线的标题 + 正文。
+class _OverviewSection extends StatelessWidget {
+  const _OverviewSection({
+    required this.mode,
+    required this.memory,
+    required this.headingKeys,
+  });
 
   final ModeTheme mode;
   final MemoryProfile memory;
+
+  /// 各概况卡的滚动定位锚点（快捷滑动条跳转用）。
+  final Map<String, GlobalKey> headingKeys;
 
   @override
   Widget build(BuildContext context) {
@@ -482,97 +719,147 @@ class _OverviewCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        // 大标题「档案概况」（AI 生成的综合概况区；下方九板块里的「双方画像」
-        // 是另一套增量条目，标题由 AI 契约固定，二者不重复）。
-        Row(
-          children: [
-            Icon(Icons.people_outlined, size: 15, color: mode.primary),
-            const SizedBox(width: 6),
-            Text(
-              '档案概况',
-              style: TextStyle(
-                color: mode.primary,
-                fontSize: 15,
-                fontWeight: mode.strongWeight,
-                letterSpacing: 1,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
         if (user.isNotEmpty) ...[
-          _ProfileCard(mode: mode, label: '你', icon: Icons.person_outline, text: user),
+          KeyedSubtree(
+            key: headingKeys['summary_user'],
+            child: _OverviewSummaryCard(
+              mode: mode,
+              icon: Icons.person_outline,
+              label: '我的概况',
+              text: user,
+            ),
+          ),
           const SizedBox(height: 12),
         ],
-        if (partner.isNotEmpty)
-          _ProfileCard(mode: mode, label: '他', icon: Icons.favorite_outline, text: partner),
-        if (relation.isNotEmpty || growth.isNotEmpty) ...[
-          if (user.isNotEmpty || partner.isNotEmpty) const SizedBox(height: 12),
-          _StatusCard(
-            mode: mode,
-            rows: [
-              if (relation.isNotEmpty) ('关系', Icons.favorite_outline, relation),
-              if (growth.isNotEmpty) ('成长', Icons.trending_up_outlined, growth),
-            ],
+        if (partner.isNotEmpty) ...[
+          KeyedSubtree(
+            key: headingKeys['summary_partner'],
+            child: _OverviewSummaryCard(
+              mode: mode,
+              icon: Icons.favorite_outline,
+              label: 'TA 的概况',
+              text: partner,
+            ),
           ),
+          const SizedBox(height: 12),
         ],
+        if (relation.isNotEmpty) ...[
+          KeyedSubtree(
+            key: headingKeys['summary_relation'],
+            child: _OverviewSummaryCard(
+              mode: mode,
+              icon: Icons.favorite_border,
+              label: '关系概况',
+              text: relation,
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        if (growth.isNotEmpty)
+          KeyedSubtree(
+            key: headingKeys['summary_growth'],
+            child: _OverviewSummaryCard(
+              mode: mode,
+              icon: Icons.trending_up_outlined,
+              label: '成长概况',
+              text: growth,
+            ),
+          ),
       ],
     );
   }
 }
 
-/// 单张身份画像卡片：「你」/「他」各自独立成卡，头部标签 + 正文。
-class _ProfileCard extends StatelessWidget {
-  const _ProfileCard({
+/// 概况卡 / 板块共用的标题：小图标 + 主色大字，文字下方一条等长粗主色下划线。
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading({
     required this.mode,
-    required this.label,
     required this.icon,
-    required this.text,
+    required this.label,
+    this.trailing,
   });
 
   final ModeTheme mode;
-  final String label;
   final IconData icon;
-  final String text;
+  final String label;
+  final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 13, 16, 15),
-      decoration: BoxDecoration(
-        color: mode.cardBackground.withValues(alpha: 0.72),
-        borderRadius: mode.cardRadius,
-        border: Border.all(color: mode.cardBorder, width: 1),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        Icon(icon, size: 17, color: mode.primary),
+        const SizedBox(width: 7),
+        // IntrinsicWidth 让横线宽度精确等于文字的排版宽度（含字距）。
+        IntrinsicWidth(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                width: 26,
-                height: 26,
-                decoration: BoxDecoration(
-                  color: mode.primary.withValues(alpha: 0.13),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 15, color: mode.primary),
-              ),
-              const SizedBox(width: 8),
               Text(
                 label,
                 style: TextStyle(
                   color: mode.primary,
-                  fontSize: 14,
+                  fontSize: 20,
                   fontWeight: mode.strongWeight,
+                  letterSpacing: 1,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Container(
+                height: 4,
+                decoration: BoxDecoration(
+                  color: mode.primary,
+                  borderRadius: BorderRadius.circular(2),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 9),
+        ),
+        const Spacer(),
+        ?trailing,
+      ],
+    );
+  }
+}
+
+/// 概况卡：二级标题直接嵌在卡片文本块的第一行，其下为正文。
+class _OverviewSummaryCard extends StatelessWidget {
+  const _OverviewSummaryCard({
+    required this.mode,
+    required this.icon,
+    required this.label,
+    required this.text,
+  });
+
+  final ModeTheme mode;
+  final IconData icon;
+  final String label;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return CutBox(
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 15),
+      fold: mode.cornerFold,
+      color: mode.cardBackground,
+      borderRadius: mode.cardRadius,
+      border: Border.all(color: mode.cardBorder, width: 1),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: mode.cardShadowAlpha),
+          blurRadius: 16,
+          offset: const Offset(0, 6),
+        ),
+      ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SectionHeading(mode: mode, icon: icon, label: label),
+          const SizedBox(height: 12),
           Text(
-            text,
-            style: TextStyle(color: mode.cardBody, fontSize: 13, height: 1.6),
+            cleanMemoryText(text),
+            style: TextStyle(color: mode.cardBody, fontSize: 13.5, height: 1.7),
           ),
         ],
       ),
@@ -580,59 +867,8 @@ class _ProfileCard extends StatelessWidget {
   }
 }
 
-/// 概况补充卡：关系状态 / 成长轨迹，各自带小标题（与画像卡并列在「双方画像」下）。
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({required this.mode, required this.rows});
-
-  final ModeTheme mode;
-  final List<(String, IconData, String)> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 13, 16, 15),
-      decoration: BoxDecoration(
-        color: mode.cardBackground.withValues(alpha: 0.72),
-        borderRadius: mode.cardRadius,
-        border: Border.all(color: mode.cardBorder, width: 1),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (var i = 0; i < rows.length; i++) ...[
-            if (i > 0) const SizedBox(height: 14),
-            Row(
-              children: [
-                Icon(rows[i].$2, size: 14, color: mode.primary),
-                const SizedBox(width: 5),
-                Text(
-                  rows[i].$1,
-                  style: TextStyle(
-                    color: mode.primary,
-                    fontSize: 12,
-                    fontWeight: mode.strongWeight,
-                    letterSpacing: 1,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 7),
-            Text(
-              rows[i].$3,
-              style: TextStyle(
-                color: mode.cardBody,
-                fontSize: 13,
-                height: 1.55,
-              ),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// 「更新记忆」主按钮（已接入真实 AI），生成中进入加载态并禁用。
+/// 「更新记忆」主按钮（已接入真实 AI）：主色填充的记忆按钮样式，
+/// 通栏宽度与聊天页输入框同尺寸，生成中进入加载态并禁用。
 class _UpdateMemoryButton extends StatelessWidget {
   const _UpdateMemoryButton({
     required this.mode,
@@ -651,12 +887,20 @@ class _UpdateMemoryButton extends StatelessWidget {
         : mode.onPrimary;
     return Material(
       color: loading ? mode.primary.withValues(alpha: 0.7) : mode.primary,
-      borderRadius: mode.chipRadius,
+      shape: FoldShape(borderRadius: mode.chipRadius, fold: mode.cornerFold),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: mode.chipRadius,
+        borderRadius: mode.cornerFold ? null : mode.chipRadius,
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
         onTap: loading ? null : onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 12),
+          padding: const EdgeInsets.symmetric(vertical: 14),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -670,13 +914,13 @@ class _UpdateMemoryButton extends StatelessWidget {
                   ),
                 )
               else
-                Icon(Icons.auto_awesome_rounded, size: 16, color: foreground),
+                Icon(Icons.auto_awesome_rounded, size: 17, color: foreground),
               const SizedBox(width: 7),
               Text(
                 loading ? '正在生成…' : '更新记忆',
                 style: TextStyle(
                   color: foreground,
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -688,30 +932,132 @@ class _UpdateMemoryButton extends StatelessWidget {
   }
 }
 
-/// 九板块分区标题。
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.mode, required this.kind});
+/// 底部悬浮的「快捷滑动条」：按钮显示当前浏览到的板块小标题，与聊天页
+/// 当前模式按钮完全同款。点击按钮本体（即当前板块的名字）向上展开其他
+/// 板块的小标题；点选某个板块后平滑滚动到该位置并收起，按钮随之显示新
+/// 板块名。无展开动效。
+class _SectionNavigator extends StatelessWidget {
+  const _SectionNavigator({
+    required this.mode,
+    required this.currentLabel,
+    required this.expanded,
+    required this.onToggle,
+    required this.options,
+  });
+
+  final ModeTheme mode;
+  final String currentLabel;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  /// 展开后展示的其他板块（已排除当前板块）。
+  final List<({String label, VoidCallback onTap})> options;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        if (expanded) ...[
+          for (var i = 0; i < options.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            _SectionOptionButton(
+              mode: mode,
+              label: options[i].label,
+              onTap: options[i].onTap,
+            ),
+          ],
+          const SizedBox(height: 12),
+        ],
+        PillButton(
+          mode: mode,
+          icon: Icons.unfold_more_rounded,
+          label: currentLabel,
+          highlight: true,
+          onTap: onToggle,
+        ),
+      ],
+    );
+  }
+}
+
+/// 展开态单个板块选项：与聊天页模式选项同款（未选中描边胶囊样式）。
+class _SectionOptionButton extends StatelessWidget {
+  const _SectionOptionButton({
+    required this.mode,
+    required this.label,
+    required this.onTap,
+  });
+
+  final ModeTheme mode;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: mode.chipBackground,
+      shape: FoldShape(
+        borderRadius: mode.chipRadius,
+        side: BorderSide(
+          color: mode.chipBorder.withValues(alpha: 0.55),
+          width: 1,
+        ),
+        fold: mode.cornerFold,
+      ),
+      elevation: 2,
+      shadowColor: Colors.black.withValues(alpha: 0.16),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        borderRadius: mode.cornerFold ? null : mode.chipRadius,
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),
+          child: Text(
+            label,
+            style: TextStyle(
+              color: mode.chipForeground,
+              fontSize: 14,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 板块标题：与概况标题同款（主色大字 + 主题色下划线），独立在板块上方。
+class _BoardHeader extends StatelessWidget {
+  const _BoardHeader({
+    required this.mode,
+    required this.kind,
+    required this.count,
+  });
 
   final ModeTheme mode;
   final MemoryKind kind;
+  final int count;
 
   @override
   Widget build(BuildContext context) {
     final meta = _kindMeta(kind);
-    return Row(
-      children: [
-        Icon(meta.icon, size: 14, color: mode.textMuted),
-        const SizedBox(width: 5),
-        Text(
-          meta.label,
-          style: TextStyle(
-            color: mode.textMuted,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1,
-          ),
-        ),
-      ],
+    return _SectionHeading(
+      mode: mode,
+      icon: meta.icon,
+      label: meta.label,
+      trailing: Text(
+        '$count 条',
+        style: TextStyle(color: mode.textMuted, fontSize: 12),
+      ),
     );
   }
 }
@@ -733,6 +1079,9 @@ class _MemoryEntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meta = _kindMeta(entry.kind);
+    // 「仍在 / 变化 / 新观察」是变化标签，抽出来单独渲染成小标签，
+    // 不再作为文本块用冒号拼在一起。
+    final parsed = splitMemoryEntryLabel(cleanMemoryText(entry.summary));
     final sourceGone =
         entry.sourceGone ||
         (entry.sources.isNotEmpty &&
@@ -743,10 +1092,13 @@ class _MemoryEntryCard extends StatelessWidget {
 
     return Material(
       color: mode.cardBackground,
-      shape: RoundedRectangleBorder(
+      shape: FoldShape(
         borderRadius: mode.cardRadius,
         side: BorderSide(color: mode.cardBorder, width: 1),
+        fold: mode.cornerFold,
       ),
+      elevation: 1.5,
+      shadowColor: Colors.black.withValues(alpha: mode.cardShadowAlpha),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: entry.sources.isEmpty ? null : onTap,
@@ -770,8 +1122,12 @@ class _MemoryEntryCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    if (parsed.label != null) ...[
+                      _MemoryChangeChip(mode: mode, label: parsed.label!),
+                      const SizedBox(height: 7),
+                    ],
                     Text(
-                      entry.summary,
+                      parsed.text,
                       style: TextStyle(
                         color: mode.cardBody,
                         fontSize: 13,
@@ -839,7 +1195,61 @@ class _MemoryEntryCard extends StatelessWidget {
   }
 }
 
-/// 空态：还没有记忆档案。
+/// 记忆条目的变化状态小标签：仍在（未变）/ 变化（有更新）/ 新观察（新增）。
+class _MemoryChangeChip extends StatelessWidget {
+  const _MemoryChangeChip({required this.mode, required this.label});
+
+  final ModeTheme mode;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final (icon, fg, bg) = switch (label) {
+      '变化' => (
+        Icons.swap_horiz_rounded,
+        mode.primary,
+        mode.primary.withValues(alpha: 0.13),
+      ),
+      '新观察' => (
+        Icons.fiber_new_rounded,
+        mode.primary,
+        mode.primary.withValues(alpha: 0.08),
+      ),
+      // 「仍在」用中性灰，表示状态延续、没有新变化。
+      _ => (
+        Icons.repeat_rounded,
+        mode.cardMuted,
+        mode.cardBorder.withValues(alpha: 0.45),
+      ),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: fg.withValues(alpha: 0.28), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 11, color: fg),
+          const SizedBox(width: 3),
+          Text(
+            label,
+            style: TextStyle(
+              color: fg,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w700,
+              height: 1.2,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 空态：还没有记忆档案。内容在可视区水平 + 垂直居中。
 class _MemoryEmptyState extends StatelessWidget {
   const _MemoryEmptyState({required this.mode});
 
@@ -847,27 +1257,43 @@ class _MemoryEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 24),
-      child: Column(
-        children: [
-          Icon(Icons.auto_stories_outlined, size: 36, color: mode.textMuted),
-          const SizedBox(height: 12),
-          Text(
-            '还没有记忆档案',
-            style: TextStyle(
-              color: mode.text,
-              fontSize: 15,
-              fontWeight: mode.strongWeight,
+    // 与 ListView 顶部/底部留白对应的可视区高度，让空态整体垂直居中。
+    final visibleHeight = (MediaQuery.sizeOf(context).height -
+            _kMemoryListTopInset -
+            _kMemoryListBottomInset)
+        .clamp(0.0, double.infinity);
+    return SizedBox(
+      height: visibleHeight,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.auto_stories_outlined,
+              size: 36,
+              color: mode.textMuted,
             ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            '完成一次对话分析后，点上方「更新记忆」\n生成你们的记忆档案。',
-            textAlign: TextAlign.center,
-            style: TextStyle(color: mode.textMuted, fontSize: 12, height: 1.6),
-          ),
-        ],
+            const SizedBox(height: 12),
+            Text(
+              '还没有记忆档案',
+              style: TextStyle(
+                color: mode.text,
+                fontSize: 15,
+                fontWeight: mode.strongWeight,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '完成一次对话分析后，点下方「更新记忆」\n生成你们的记忆档案。',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: mode.textMuted,
+                fontSize: 12,
+                height: 1.6,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -898,23 +1324,22 @@ class _MessageDialog extends StatelessWidget {
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      child: Container(
+      child: CutBox(
         width: 292,
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-        decoration: BoxDecoration(
-          color: mode.cardBackground,
-          borderRadius: mode.cardRadius,
-          border: Border.all(color: mode.cardBorder, width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(
-                alpha: (mode.cardShadowAlpha + 0.08).clamp(0, 1),
-              ),
-              blurRadius: 24,
-              offset: const Offset(0, 10),
+        fold: mode.cornerFold,
+        color: mode.cardBackground,
+        borderRadius: mode.cardRadius,
+        border: Border.all(color: mode.cardBorder, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: (mode.cardShadowAlpha + 0.08).clamp(0, 1),
             ),
-          ],
-        ),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -960,7 +1385,10 @@ class _MessageDialog extends StatelessWidget {
                     horizontal: 18,
                     vertical: 10,
                   ),
-                  shape: RoundedRectangleBorder(borderRadius: mode.chipRadius),
+                  shape: FoldShape(
+                    borderRadius: mode.chipRadius,
+                    fold: mode.cornerFold,
+                  ),
                 ),
                 child: Text(
                   primaryLabel ?? '知道了',

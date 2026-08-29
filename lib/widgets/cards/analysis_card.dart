@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../models/models.dart';
+import '../../theme/fold_decoration.dart';
 import '../../theme/mode_theme.dart';
 
 /// 单张分析卡片：标题 + 结论 + 依据 + 推测。
@@ -26,21 +27,20 @@ class _BattleAnalysisCardState extends State<BattleAnalysisCard> {
     final card = widget.card;
     final mode = widget.mode;
 
-    return Container(
+    return CutBox(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: mode.cardBackground,
-        borderRadius: mode.cardRadius,
-        border: Border.all(color: mode.cardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: mode.cardShadowAlpha),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+      fold: mode.cornerFold,
+      color: mode.cardBackground,
+      borderRadius: mode.cardRadius,
+      border: Border.all(color: mode.cardBorder),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: mode.cardShadowAlpha),
+          blurRadius: 18,
+          offset: const Offset(0, 8),
+        ),
+      ],
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

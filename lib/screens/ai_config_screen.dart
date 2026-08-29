@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/models.dart';
 import '../providers/app_providers.dart';
 import '../services/ai_client.dart';
+import '../theme/fold_decoration.dart';
 import '../theme/mode_theme.dart';
 import '../widgets/buttons/pill_button.dart';
 
@@ -171,170 +172,170 @@ class _AiConfigScreenState extends ConsumerState<AiConfigScreen> {
         backgroundColor: mode.background,
         body: Stack(
           children: [
-          Positioned.fill(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 130, 16, 150),
-              children: [
-                _ProviderCard(mode: mode),
-                const SizedBox(height: 18),
-                _SectionLabel(
-                  mode: mode,
-                  icon: Icons.sync_alt_outlined,
-                  text: '兼容协议',
-                ),
-                const SizedBox(height: 8),
-                _ProtocolSelector(
-                  mode: mode,
-                  selected: _protocol,
-                  onSelect: _selectProtocol,
-                ),
-                const SizedBox(height: 18),
-                _SectionLabel(
-                  mode: mode,
-                  icon: Icons.key_outlined,
-                  text: 'API Key',
-                ),
-                const SizedBox(height: 8),
-                _ConfigField(
-                  mode: mode,
-                  controller: _apiKeyController,
-                  hint: 'sk-xxxxx',
-                  obscure: _obscureKey,
-                  onToggleObscure: () =>
-                      setState(() => _obscureKey = !_obscureKey),
-                ),
-                const SizedBox(height: 18),
-                _SectionLabel(
-                  mode: mode,
-                  icon: Icons.auto_awesome_outlined,
-                  text: '模型',
-                ),
-                const SizedBox(height: 8),
-                _ConfigField(
-                  mode: mode,
-                  controller: _modelController,
-                  hint: '留空使用默认 mimo-v2.5',
-                ),
-                const SizedBox(height: 18),
-                _SectionLabel(
-                  mode: mode,
-                  icon: Icons.link_outlined,
-                  text: '接口地址',
-                ),
-                const SizedBox(height: 8),
-                _ConfigField(
-                  mode: mode,
-                  controller: _baseUrlController,
-                  hint: defaultUrl,
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  '切换协议时自动带入对应默认地址，可手动修改。',
-                  style: TextStyle(color: mode.textMuted, fontSize: 11),
-                ),
-                const SizedBox(height: 20),
-                _TestConnectionTile(
-                  mode: mode,
-                  testing: _testing,
-                  result: _testResult,
-                  ok: _testOk,
-                  onTap: _testConnection,
-                ),
-                const SizedBox(height: 14),
-                _SaveButton(mode: mode, onTap: _save),
-                const SizedBox(height: 10),
-                Text(
-                  '数据只发给你选择的模型厂商，不经过任何第三方。',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(color: mode.textMuted, fontSize: 11),
-                ),
-              ],
-            ),
-          ),
-          // 顶部渐隐：内容滚动到浮层标题下方时过渡淡出。
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 110,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      mode.background.withValues(alpha: 1),
-                      mode.background.withValues(alpha: 0.9),
-                      mode.background.withValues(alpha: 0),
-                    ],
-                    stops: const [0.0, 0.6, 1.0],
+            Positioned.fill(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(16, 130, 16, 150),
+                children: [
+                  _ProviderCard(mode: mode),
+                  const SizedBox(height: 18),
+                  _SectionLabel(
+                    mode: mode,
+                    icon: Icons.sync_alt_outlined,
+                    text: '兼容协议',
                   ),
-                ),
+                  const SizedBox(height: 8),
+                  _ProtocolSelector(
+                    mode: mode,
+                    selected: _protocol,
+                    onSelect: _selectProtocol,
+                  ),
+                  const SizedBox(height: 18),
+                  _SectionLabel(
+                    mode: mode,
+                    icon: Icons.key_outlined,
+                    text: 'API Key',
+                  ),
+                  const SizedBox(height: 8),
+                  _ConfigField(
+                    mode: mode,
+                    controller: _apiKeyController,
+                    hint: 'sk-xxxxx',
+                    obscure: _obscureKey,
+                    onToggleObscure: () =>
+                        setState(() => _obscureKey = !_obscureKey),
+                  ),
+                  const SizedBox(height: 18),
+                  _SectionLabel(
+                    mode: mode,
+                    icon: Icons.auto_awesome_outlined,
+                    text: '模型',
+                  ),
+                  const SizedBox(height: 8),
+                  _ConfigField(
+                    mode: mode,
+                    controller: _modelController,
+                    hint: '留空使用默认 mimo-v2.5',
+                  ),
+                  const SizedBox(height: 18),
+                  _SectionLabel(
+                    mode: mode,
+                    icon: Icons.link_outlined,
+                    text: '接口地址',
+                  ),
+                  const SizedBox(height: 8),
+                  _ConfigField(
+                    mode: mode,
+                    controller: _baseUrlController,
+                    hint: defaultUrl,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    '切换协议时自动带入对应默认地址，可手动修改。',
+                    style: TextStyle(color: mode.textMuted, fontSize: 11),
+                  ),
+                  const SizedBox(height: 20),
+                  _TestConnectionTile(
+                    mode: mode,
+                    testing: _testing,
+                    result: _testResult,
+                    ok: _testOk,
+                    onTap: _testConnection,
+                  ),
+                  const SizedBox(height: 14),
+                  _SaveButton(mode: mode, onTap: _save),
+                  const SizedBox(height: 10),
+                  Text(
+                    '数据只发给你选择的模型厂商，不经过任何第三方。',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: mode.textMuted, fontSize: 11),
+                  ),
+                ],
               ),
             ),
-          ),
-          // 底部渐变遮罩。
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            height: 120,
-            child: IgnorePointer(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.bottomCenter,
-                    end: Alignment.topCenter,
-                    colors: [
-                      mode.background.withValues(alpha: 1),
-                      mode.background.withValues(alpha: 0.85),
-                      mode.background.withValues(alpha: 0),
-                    ],
-                    stops: const [0.0, 0.5, 1.0],
-                  ),
-                ),
-              ),
-            ),
-          ),
-          // 顶部浮层：返回 + 标题 + 配置状态。
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(14, 6, 16, 6),
-                child: Row(
-                  children: [
-                    PillButton(
-                      mode: mode,
-                      icon: Icons.arrow_back_rounded,
-                      label: '',
-                      highlight: true,
-                      onTap: () => Navigator.of(context).pop(),
+            // 顶部渐隐：内容滚动到浮层标题下方时过渡淡出。
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: 110,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        mode.background.withValues(alpha: 1),
+                        mode.background.withValues(alpha: 0.9),
+                        mode.background.withValues(alpha: 0),
+                      ],
+                      stops: const [0.0, 0.6, 1.0],
                     ),
-                    const SizedBox(width: 10),
-                    Text(
-                      '配置 AI 接口',
-                      style: TextStyle(
-                        color: mode.text,
-                        fontSize: 20,
-                        fontWeight: mode.strongWeight,
+                  ),
+                ),
+              ),
+            ),
+            // 底部渐变遮罩。
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 120,
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.bottomCenter,
+                      end: Alignment.topCenter,
+                      colors: [
+                        mode.background.withValues(alpha: 1),
+                        mode.background.withValues(alpha: 0.85),
+                        mode.background.withValues(alpha: 0),
+                      ],
+                      stops: const [0.0, 0.5, 1.0],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            // 顶部浮层：返回 + 标题 + 配置状态。
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              child: SafeArea(
+                bottom: false,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 6, 16, 6),
+                  child: Row(
+                    children: [
+                      PillButton(
+                        mode: mode,
+                        icon: Icons.arrow_back_rounded,
+                        label: '',
+                        highlight: true,
+                        onTap: () => Navigator.of(context).pop(),
                       ),
-                    ),
-                    const Spacer(),
-                    _ConfigStatus(mode: mode, configured: draft.isConfigured),
-                  ],
+                      const SizedBox(width: 10),
+                      Text(
+                        '配置 AI 接口',
+                        style: TextStyle(
+                          color: mode.text,
+                          fontSize: 20,
+                          fontWeight: mode.strongWeight,
+                        ),
+                      ),
+                      const Spacer(),
+                      _ConfigStatus(mode: mode, configured: draft.isConfigured),
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
-    ),
-  );
+    );
   }
 }
 
@@ -374,20 +375,19 @@ class _ProviderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return CutBox(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      decoration: BoxDecoration(
-        color: mode.cardBackground,
-        borderRadius: mode.cardRadius,
-        border: Border.all(color: mode.cardBorder, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: mode.cardShadowAlpha),
-            blurRadius: 16,
-            offset: const Offset(0, 6),
-          ),
-        ],
-      ),
+      fold: mode.cornerFold,
+      color: mode.cardBackground,
+      borderRadius: mode.cardRadius,
+      border: Border.all(color: mode.cardBorder, width: 1),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: mode.cardShadowAlpha),
+          blurRadius: 16,
+          offset: const Offset(0, 6),
+        ),
+      ],
       child: Row(
         children: [
           Container(
@@ -510,9 +510,17 @@ class _ProtocolOption extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: isSelected ? mode.primary : mode.cardBackground,
-      borderRadius: mode.chipRadius,
+      shape: FoldShape(borderRadius: mode.chipRadius, fold: mode.cornerFold),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: mode.chipRadius,
+        borderRadius: mode.cornerFold ? null : mode.chipRadius,
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 12),
@@ -597,12 +605,11 @@ class _ConfigField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: mode.chipBackground,
-        borderRadius: mode.inputRadius,
-        border: Border.all(color: mode.chipBorder),
-      ),
+    return CutBox(
+      fold: mode.cornerFold,
+      color: mode.chipBackground,
+      borderRadius: mode.inputRadius,
+      border: Border.all(color: mode.chipBorder),
       child: TextField(
         controller: controller,
         obscureText: obscure ?? false,
@@ -661,12 +668,21 @@ class _TestConnectionTile extends StatelessWidget {
       children: [
         Material(
           color: mode.chipBackground,
-          shape: RoundedRectangleBorder(
+          shape: FoldShape(
             borderRadius: mode.chipRadius,
             side: BorderSide(color: mode.chipBorder, width: 1),
+            fold: mode.cornerFold,
           ),
+          clipBehavior: Clip.antiAlias,
           child: InkWell(
-            borderRadius: mode.chipRadius,
+            borderRadius: mode.cornerFold ? null : mode.chipRadius,
+            customBorder: mode.cornerFold
+                ? FoldShape(
+                    borderRadius: BorderRadius.zero,
+                    side: BorderSide.none,
+                    fold: true,
+                  )
+                : null,
             onTap: testing ? null : onTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
@@ -729,9 +745,17 @@ class _SaveButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: mode.actionChipBackground,
-      borderRadius: mode.chipRadius,
+      shape: FoldShape(borderRadius: mode.chipRadius, fold: mode.cornerFold),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: mode.chipRadius,
+        borderRadius: mode.cornerFold ? null : mode.chipRadius,
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 13),

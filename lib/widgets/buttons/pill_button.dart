@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/fold_decoration.dart';
 import '../../theme/mode_theme.dart';
 
 /// 胶囊形态的通用按钮，用于顶部栏等处的次要操作。
@@ -37,17 +38,28 @@ class PillButton extends StatelessWidget {
     final borderColor = (highlight ? scheme.primary : mode.chipBorder)
         .withValues(alpha: 0.55);
 
+    final inkBorderRadius = mode.cornerFold ? null : mode.chipRadius;
+
     return Material(
       color: background,
-      shape: RoundedRectangleBorder(
+      shape: FoldShape(
         borderRadius: mode.chipRadius,
         side: BorderSide(color: borderColor, width: 1),
+        fold: mode.cornerFold,
       ),
       elevation: 2,
       shadowColor: Colors.black.withValues(alpha: 0.16),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
-        borderRadius: mode.chipRadius,
+        borderRadius: inkBorderRadius,
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
         child: Padding(
           padding: EdgeInsets.symmetric(
             horizontal: compact ? 14 : 16,

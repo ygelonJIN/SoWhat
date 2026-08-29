@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../theme/fold_decoration.dart';
 import '../../theme/mode_theme.dart';
 
 /// 全局限定的反馈（错误 / 提示共用一个组件），避免各处样式漂移。
@@ -97,23 +98,22 @@ class _FeedbackDialog extends StatelessWidget {
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      child: Container(
+      child: CutBox(
         width: 292,
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-        decoration: BoxDecoration(
-          color: mode.cardBackground,
-          borderRadius: mode.cardRadius,
-          border: Border.all(color: mode.cardBorder, width: 1),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(
-                alpha: (mode.cardShadowAlpha + 0.08).clamp(0, 1),
-              ),
-              blurRadius: 24,
-              offset: const Offset(0, 10),
+        fold: mode.cornerFold,
+        color: mode.cardBackground,
+        borderRadius: mode.cardRadius,
+        border: Border.all(color: mode.cardBorder, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: (mode.cardShadowAlpha + 0.08).clamp(0, 1),
             ),
-          ],
-        ),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -162,7 +162,10 @@ class _FeedbackDialog extends StatelessWidget {
                     horizontal: 18,
                     vertical: 10,
                   ),
-                  shape: RoundedRectangleBorder(borderRadius: mode.chipRadius),
+                  shape: FoldShape(
+                    borderRadius: mode.chipRadius,
+                    fold: mode.cornerFold,
+                  ),
                 ),
                 child: Text(
                   actionLabel ?? '知道了',

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>比输赢 · 整体主题方案</title>
+<link rel="stylesheet" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/misans@4.1.0/lib/Normal/MiSans-Bold.min.css" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Sharp:opsz,wght,FILL,GRAD@20..48,400,0,0&display=block" />
+<style>
+  @font-face{font-family:'PuHuiTi Bold';src:url('https://cdn.jsdelivr.net/npm/@fontpkg/alibaba-pu-hui-ti-3-0@3.1.2/AlibabaPuHuiTi-3-85-Bold.ttf') format('truetype');}
+  @font-face{font-family:'PuHuiTi Heavy';src:url('https://cdn.jsdelivr.net/npm/@fontpkg/alibaba-pu-hui-ti-3-0@3.1.2/AlibabaPuHuiTi-3-105-Heavy.ttf') format('truetype');}
+  @font-face{font-family:'ShuHeiTi';src:url('https://cdn.jsdelivr.net/npm/@fontpkg/alimama-shu-hei-ti@1.0.5/AlimamaShuHeiTi-Bold.woff2') format('woff2');}
+
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC",sans-serif;background:#eff0f4;color:#16161a;padding:34px 18px 120px;line-height:1.55}
+  .wrap{max-width:1240px;margin:0 auto}
+  header h1{font-size:23px;letter-spacing:1px}
+  header p{color:#6e6e78;font-size:13px;margin-top:6px;max-width:900px}
+  .note{font-size:12px;color:#6e6e78;background:#fff;border:1px dashed #e3e3ea;border-radius:12px;padding:12px 14px;margin-top:16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:22px;margin-top:26px}
+
+  .opt{background:#fff;border:2px solid #e3e3ea;border-radius:18px;padding:18px;cursor:pointer;transition:.16s;box-shadow:0 8px 22px rgba(0,0,0,.04)}
+  .opt:hover{transform:translateY(-2px);box-shadow:0 12px 28px rgba(0,0,0,.08)}
+  .opt.sel{border-color:#16161a;box-shadow:0 0 0 3px rgba(22,22,26,.07)}
+  .head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+  .head .t{font-weight:800;font-size:15px}
+  .head .sub{font-size:11px;color:#6e6e78;margin-top:2px}
+  .pick{width:30px;height:30px;border-radius:999px;border:2px solid #d9d9e0;display:grid;place-items:center;font-size:15px;font-weight:900;color:transparent;flex:none}
+  .opt.sel .pick{background:#16161a;border-color:#16161a;color:#fff}
+
+  /* ── 手机 mockup ───────────────────────────── */
+  .ph{height:660px;border-radius:26px;overflow:hidden;position:relative;
+      display:flex;flex-direction:column;padding:0;border:1px solid rgba(0,0,0,.06);box-shadow:0 16px 40px rgba(0,0,0,.14)}
+  .topbar{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 0}
+  .pill{font-size:11px;font-weight:700;padding:5px 13px;border-radius:99px;background:var(--srf);color:var(--ink);box-shadow:0 3px 8px rgba(0,0,0,.06)}
+  .empty{flex:1;padding:46px 20px 0;color:var(--ink)}
+  .empty .ik{width:80px;height:80px;color:var(--acc)}
+  .empty .l1{font-size:19px;font-weight:800;margin-top:16px;letter-spacing:.5px}
+  .empty .l2{font-size:14px;color:var(--mut);margin-top:8px}
+  .empty .l3{font-size:13px;color:var(--acc);font-weight:600;letter-spacing:1.5px;margin-top:8px}
+  .acard{margin:18px 16px 0;padding:13px 14px;background:var(--card);border-radius:var(--radcard);color:var(--ink);box-shadow:0 6px 14px var(--shd);position:relative}
+  .acard .ct{font-size:12.5px;font-weight:900;letter-spacing:.5px}
+  .acard .cc{font-size:12px;color:var(--body);margin-top:7px;line-height:1.55}
+  .acard .ev{font-size:11px;color:var(--mut);margin-top:8px;border-top:1px dashed var(--dash);padding-top:7px}
+  .bottom{background:transparent;padding:16px 16px 20px;display:flex;flex-direction:column;gap:9px;margin-top:auto}
+  .modes{display:flex;justify-content:flex-end;gap:8px}
+  .mpill{font-size:11.5px;font-weight:800;padding:7px 16px;border-radius:var(--radchip);background:var(--ink);color:var(--on);letter-spacing:1px}
+  .mpill.mem{background:var(--srf);color:var(--ink);box-shadow:0 2px 6px rgba(0,0,0,.05)}
+  .composer{display:flex;align-items:center;gap:8px;background:var(--cbar);border-radius:var(--radinput);padding:9px 10px;box-shadow:0 10px 26px var(--shd);border:1px solid var(--cline)}
+  .composer .txt{flex:1;height:34px;border-radius:10px;background:transparent;padding:0 6px;color:var(--ink);font-size:13px;display:flex;align-items:center}
+  .composer .txt .h{color:var(--mut);font-size:12px}
+  .cmp{width:34px;height:34px;border-radius:11px;background:var(--ink);display:grid;place-items:center;color:var(--on)}
+
+  .tagF{display:inline-block;font-size:10px;font-weight:800;letter-spacing:1px;padding:2px 8px;border-radius:99px;margin-right:6px}
+  .des{font-size:12px;color:#6e6e78;margin-top:12px;line-height:1.6}
+
+  .bar-summary{position:fixed;bottom:0;left:0;right:0;background:#16161a;color:#fff;z-index:20;display:flex;align-items:center;gap:14px;padding:13px 18px;font-size:13px;flex-wrap:wrap;box-shadow:0 -6px 20px rgba(0,0,0,.18)}
+  .bar-summary .lbl{font-weight:800;letter-spacing:1px}
+  .bar-summary #sel{color:#cdd5ff;font-weight:700}
+  .bar-summary a{color:#fff;border:1px solid #555;padding:7px 14px;border-radius:8px;text-decoration:none;margin-left:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a href="index.html" style="color:#6e6e78;font-size:12px;text-decoration:none">← 返回总览</a>
+    <h1 style="margin-top:8px">比输赢 · 整体主题方案（换掉「斜切」）</h1>
+    <p>四套把<b>配色 + 角型 + 字体 + 组件</b>打包好的整体风格，都替换掉了原来的斜切/斜体。为爱=圆润手写、论对错=方正宋体，所以比输赢走「黑体 + 独特角型/配色」。看中哪套点一下。</p>
+    <div class="note">四套都用了你选的比输赢图标（比分牌）与正式黑体。角型相互错开：记分牌=小圆角、折角战绩=折角、极简黑白=细双线直角、深色擂台=小圆角+金线，整体都不复刻为爱的圆、也不撞论对错的直角感。</div>
+  </header>
+
+  <div class="grid">
+
+    <!-- A · 记分牌 -->
+    <div class="opt" onclick="choose(this,'方案 A · 记分牌（黑 × 荧光绿）')" style="--bg:#e9ecef;--card:#fff;--srf:#fff;--ink:#16161a;--on:#fff;--body:#33333c;--mut:#7c828a;--acc:#00e25b;--shd:rgba(0,0,0,.09);--cbar:#f2f4f6;--cline:#e2e6ea;--dash:#dfe3e8;--radinput:13px;--radcard:14px;--radchip:9px">
+      <div class="head"><div><div class="t">方案 A · 记分牌</div><div class="sub">黑 × 荧光绿 · 小圆角 · 小米兰亭/数黑体</div></div><span class="pick">✓</span></div>
+      <div class="ph" style="background:var(--bg);font-family:'ShuHeiTi','MiSans',sans-serif">
+        <div class="topbar"><span class="pill">· 设置</span><span class="pill">2026-08-29</span></div>
+        <div style="display:flex;gap:5px;justify-content:flex-end;padding:12px 18px 0"><i style="width:5px;height:18px;background:#0c1216;border-radius:1px"></i><i style="width:5px;height:18px;background:#00e25b;border-radius:1px"></i><i style="width:5px;height:18px;background:#97d0aa;border-radius:1px"></i><i style="width:5px;height:18px;background:#5d646b;border-radius:1px"></i></div>
+        <div class="empty"><span class="material-symbols-sharp ik">sports_score</span><div class="l1">胜负落定之后。</div><div class="l2">爱已经失去位置。</div><div class="l3">love gone.</div></div>
+        <div class="acard"><div class="ct" style="display:flex;justify-content:space-between;align-items:center">势 气 掌 控 <span style="background:#00e25b33;color:#0a7a36;font-size:10px;padding:2px 7px;border-radius:6px">0 : 1</span></div><div class="cc">谁先低头，谁就输了这一局。情绪一旦站到台上，就只剩下比分在说话。</div><div class="ev">出处：2026-08-27 21:05</div></div>
+        <div class="bottom">
+          <div class="modes"><span class="mpill mem">记忆</span><span class="mpill">比输赢</span></div>
+          <div class="composer"><div class="txt"><span class="h">上传截图，或把对话贴进来</span></div><div class="cmp" style="background:var(--ink)"><span class="material-symbols-sharp" style="font-size:18px">image</span></div><div class="cmp"><span class="material-symbols-sharp" style="font-size:18px">arrow_upward</span></div></div>
+        </div>
+      </div>
+      <div class="des"><span class="tagF" style="background:#00e25b22;color:#0a7a36">记分</span>LED 荧光绿做点缀、顶部一条比分格栅、卡片带比分角标 —— 和「比分牌」图标成套，竞技感强却克制。</div>
+    </div>
+
+    <!-- B · 折角战绩页 -->
+    <div class="opt" onclick="choose(this,'方案 B · 折角战绩页（纸感 × 红章）')" style="--bg:#f2ede3;--card:#fbf8f0;--srf:#fffdf6;--ink:#211f1c;--on:#fff;--body:#3a3732;--mut:#8a847a;--acc:#c0392b;--shd:rgba(60,45,20,.12);--cbar:#f6f1e6;--cline:#e6dcc9;--dash:#dcd2bd;--radinput:6px;--radcard:4px;--radchip:4px">
+      <div class="head"><div><div class="t">方案 B · 折角战绩页</div><div class="sub">米纸 × 红章 · 折角 · 阿里巴巴普惠体</div></div><span class="pick">✓</span></div>
+      <div class="ph" style="background:var(--bg);font-family:'PuHuiTi Bold',sans-serif">
+        <div class="topbar"><span class="pill">· 设置</span><span class="pill">2026-08-29</span></div>
+        <div class="empty"><span class="material-symbols-sharp ik">sports_score</span><div class="l1">胜负落定之后。</div><div class="l2">爱已经失去位置。</div><div class="l3">love gone.</div></div>
+        <div class="acard fold"><div class="ct"><span class="tagF" style="background:#c0392b;color:#fff">胜负 · 判定</span>势 气 掌 控</div><div class="cc">谁先低头，谁就输了这一局。记录在案。</div><div class="ev">胜方：无 · 卷宗号 2026-08-27 21:05</div></div>
+        <div class="bottom">
+          <div class="modes"><span class="mpill mem">记忆</span><span class="mpill">比输赢</span></div>
+          <div class="composer"><div class="txt"><span class="h">上传截图，或把对话贴进来</span></div><div class="cmp"><span class="material-symbols-sharp" style="font-size:18px">image</span></div><div class="cmp"><span class="material-symbols-sharp" style="font-size:18px">arrow_upward</span></div></div>
+        </div>
+      </div>
+      <div class="des"><span class="tagF" style="background:#c0392b;color:#fff">折角</span>卡片右上角折起一角，像裁决书 / 战绩档案 / 成绩单；米纸底色 + 红色判定章，正式又有记忆点。</div>
+    </div>
+
+    <!-- C · 极简黑白 -->
+    <div class="opt" onclick="choose(this,'方案 C · 极简黑白（纯黑白 · 编辑感）')" style="--bg:#ffffff;--card:#ffffff;--srf:#f4f4f6;--ink:#050505;--on:#fff;--body:#1a1a1a;--mut:#8b8b93;--acc:#050505;--shd:rgba(0,0,0,.05);--cbar:#fafafa;--cline:#111;--dash:#999;--radinput:3px;--radcard:3px;--radchip:0px">
+      <div class="head"><div><div class="t">方案 C · 极简黑白</div><div class="sub">纯黑白 · 细双线 · 大留白 · 阿里巴巴普惠体 Heavy</div></div><span class="pick">✓</span></div>
+      <div class="ph" style="background:var(--bg);font-family:'PuHuiTi Heavy',sans-serif;letter-spacing:.5px">
+        <div class="topbar"><span class="pill" style="border:1px solid #111;border-radius:2px;box-shadow:none">设置</span><span class="pill" style="border:1px solid #111;border-radius:2px;box-shadow:none">2026-08-29</span></div>
+        <div style="border-top:2px solid #050505;margin:14px 18px 0;padding-top:4px;display:flex;justify-content:space-between;font-size:10px;letter-spacing:2px;color:#8b8b93"><span>胜负之局</span><span>VOL.01</span></div>
+        <div class="empty" style="text-align:left;padding-left:22px"><span class="material-symbols-sharp ik" style="color:#050505">sports_score</span><div class="l1">胜负落定之后。</div><div class="l2">爱已经失去位置。</div><div class="l3">love gone.</div></div>
+        <div class="acard" style="border:1px solid #050505;box-shadow:none"><div class="ct">势 气 掌 控</div><div class="cc">谁先低头，谁就输了这一局。</div><div class="ev">2026-08-27 · 21:05</div></div>
+        <div class="bottom">
+          <div class="modes"><span class="mpill mem" style="border:1px solid #050505;border-radius:2px;box-shadow:none">记忆</span><span class="mpill" style="border-radius:2px">比输赢</span></div>
+          <div class="composer" style="border-radius:3px"><div class="txt"><span class="h">上传截图，或把对话贴进来</span></div><div class="cmp"><span class="material-symbols-sharp" style="font-size:18px">image</span></div><div class="cmp"><span class="material-symbols-sharp" style="font-size:18px">arrow_upward</span></div></div>
+        </div>
+      </div>
+      <div class="des"><span class="tagF" style="background:#050505;color:#fff">极简</span>只有黑白、一个彩色都不要，靠大留白 / 细双线框 / 宽字距做出「编辑部」般的干净锐度，最不像「对错的法庭」。<b>同样可放浅灰底</b>。</div>
+    </div>
+
+    <!-- D · 深色擂台 -->
+    <div class="opt" onclick="choose(this,'方案 D · 深色擂台（黑底 × 金线）')" style="--bg:#14141a;--card:#1e1e26;--srf:#26262e;--ink:#f4f4f6;--on:#14141a;--body:#cfcfd8;--mut:#8a8a96;--acc:#d4af37;--shd:rgba(0,0,0,.4);--cbar:#20202a;--cline:#33333f;--dash:#33333f;--radinput:12px;--radcard:12px;--radchip:8px">
+      <div class="head"><div><div class="t">方案 D · 深色擂台</div><div class="sub">黑底 × 金线 · 小圆角 · 阿里巴巴普惠体 Heavy</div></div><span class="pick">✓</span></div>
+      <div class="ph" style="background:var(--bg);font-family:'PuHuiTi Heavy',sans-serif">
+        <div style="border-top:3px solid var(--acc);margin:16px 18px 0;opacity:.9"></div>
+        <div class="topbar"><span class="pill" style="background:#26262e;color:#f4f4f6">· 设置</span><span class="pill" style="background:#26262e;color:#d4af37">2026-08-29</span></div>
+        <div class="empty"><span class="material-symbols-sharp ik">sports_score</span><div class="l1" style="color:#fff">胜负落定之后。</div><div class="l2">爱已经失去位置。</div><div class="l3" style="color:#d4af37">love gone.</div></div>
+        <div class="acard" style="border:1px solid #33333f"><div class="ct" style="display:flex;justify-content:space-between;align-items:center;color:#fff">势 气 掌 控 <span style="color:#d4af37;font-size:11px">胜 · 1</span></div><div class="cc">谁先低头，谁就输了这一局。</div><div class="ev">2026-08-27 · 21:05</div></div>
+        <div class="bottom">
+          <div class="modes"><span class="mpill mem" style="background:#26262e;color:#f4f4f6">记忆</span><span class="mpill" style="background:#26262e;color:#d4af37;border:1px solid #d4af37">比输赢</span></div>
+          <div class="composer" style="background:#20202a;border:1px solid #33333f"><div class="txt"><span class="h" style="color:#8a8a96">上传截图，或把对话贴进来</span></div><div class="cmp" style="background:#26262e;color:#f4f4f6"><span class="material-symbols-sharp" style="font-size:18px">image</span></div><div class="cmp" style="background:var(--acc);color:#14141a"><span class="material-symbols-sharp" style="font-size:18px">arrow_upward</span></div></div>
+        </div>
+      </div>
+      <div class="des"><span class="tagF" style="background:#d4af37;color:#14141a">擂台</span>整页压成深色，一条金色顶线打住，像聚光灯下的擂台 / 颁奖礼 —— 高反差、隆重，和三模式的浅色基调都能区隔开。</div>
+    </div>
+
+  </div>
+
+  <div class="bar-summary">
+    <span class="lbl">你选的主题：</span><span id="sel">（还没选）</span>
+    <a href="fonts.html">配字体 →</a>
+  </div>
+</div>
+<script>
+  function choose(el, name){
+    const had = el.classList.contains('sel');
+    document.querySelectorAll('.opt.sel').forEach(o=>o.classList.remove('sel'));
+    if(had){ document.getElementById('sel').textContent='（还没选）'; return; }
+    el.classList.add('sel');
+    document.getElementById('sel').textContent = name;
+  }
+</script>
+</body>
+</html>

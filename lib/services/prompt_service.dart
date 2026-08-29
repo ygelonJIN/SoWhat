@@ -21,7 +21,7 @@ class PromptService {
 性格、表达方式、在乎什么、害怕什么，以及一路走来的矛盾与成长。
 
 铁律：
-1. 不使用「男方/女方」或任何性别、角色标签，一律用「双方」「你」「TA」。
+1. 称呼铁律（两人绝不能搞混，输出也统一用这套称呼）：「我」= 正在使用本 App 的人，也就是对话记录里标着「我」的一方；「TA」= 另一人，也就是对话记录里标着「TA」的一方。分析一律用「双方 / 我 / TA」，禁止「你、他、她、A、B、男方、女方、对方」等任何其他称呼；判断谁是谁时，一律以对话记录里的「我 / TA」标签为准。
 2. 只基于对话内容与双方补充的背景分析，不编造对话里不存在的信息。
 3. 每个结论尽量对应到具体对话；无法对应到证据的判断，标注为「推测」。
 4. 不站队、不迎合任何一方：指出双方的合理之处，也指出双方的问题。
@@ -163,7 +163,7 @@ $conversation
   String _memoryBlock(MemoryProfile memory) {
     final parts = <String>[];
     if (memory.userSummary?.isNotEmpty ?? false) {
-      parts.add('你（用户）的画像：${memory.userSummary}');
+      parts.add('我的画像（使用本 App 的人）：${memory.userSummary}');
     }
     if (memory.partnerSummary?.isNotEmpty ?? false) {
       parts.add('TA 的画像：${memory.partnerSummary}');

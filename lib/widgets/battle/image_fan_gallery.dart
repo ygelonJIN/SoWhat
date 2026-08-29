@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../theme/fold_decoration.dart';
 import '../../theme/mode_theme.dart';
 
 /// 常驻悬浮的截图卡牌扇，叠在聊天内容上方、日期按钮正下方。
@@ -153,15 +154,17 @@ class ImageFanGalleryState extends State<ImageFanGallery>
                 onTap: widget.onRemove,
                 child: Material(
                   color: mode.primary,
-                  shape: RoundedRectangleBorder(
+                  shape: FoldShape(
                     borderRadius: mode.chipRadius,
                     side: BorderSide(
                       color: mode.primary.withValues(alpha: 0.8),
                       width: 1,
                     ),
+                    fold: mode.cornerFold,
                   ),
                   elevation: 3,
                   shadowColor: Colors.black.withValues(alpha: 0.18),
+                  clipBehavior: Clip.antiAlias,
                   child: const SizedBox(
                     width: 40,
                     height: 40,

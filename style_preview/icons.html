@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>天平 &amp; 领奖台 · 图标选型</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Sharp:opsz,wght,FILL,GRAD@20..48,400,0,0&display=block" />
+<style>
+  :root{--ink:#16161a;--muted:#6e6e78;--line:#e3e3ea;--bg:#eff0f4;--card:#fff;--right:#8a6d3b;--win:#16161a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"PingFang SC",sans-serif;background:var(--bg);color:var(--ink);padding:34px 18px 120px;line-height:1.55}
+  .wrap{max-width:1040px;margin:0 auto}
+  header h1{font-size:23px;letter-spacing:1px}
+  header p{color:var(--muted);font-size:13px;margin-top:6px;max-width:880px}
+  .note{font-size:12px;color:var(--muted);background:#fff;border:1px dashed var(--line);border-radius:12px;padding:12px 14px;margin-top:16px}
+  .sec-h2{margin:40px 0 4px;font-size:17px;display:flex;align-items:center;gap:10px}
+  .sec-h2 .n{width:24px;height:24px;border-radius:8px;color:#fff;display:grid;place-items:center;font-size:12px}
+  .sec-sub{color:var(--muted);font-size:12.5px;margin:6px 0 16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:16px}
+  .opt{background:var(--card);border:2px solid var(--line);border-radius:16px;padding:20px 14px;cursor:pointer;text-align:center;transition:.16s;box-shadow:0 6px 18px rgba(0,0,0,.04)}
+  .opt:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,.08)}
+  .opt.sel{border-color:var(--ink);box-shadow:0 0 0 3px rgba(22,22,26,.07)}
+  .stage{height:132px;border-radius:14px;display:grid;place-items:center;margin-bottom:14px}
+  .mat{font-family:'Material Symbols Sharp';font-weight:400;font-style:normal;font-size:80px;line-height:1;
+       display:inline-block;white-space:nowrap;letter-spacing:normal;text-transform:none;word-wrap:normal;direction:ltr}
+  .opt .name{font-size:14px;font-weight:800}
+  .opt .cn{font-size:11px;color:var(--muted);font-weight:400;margin-left:5px}
+  .opt .tag{font-size:11px;font-weight:700;letter-spacing:1px;padding:2px 8px;border-radius:999px}
+  .opt .des{font-size:12px;color:var(--muted);margin-top:7px;min-height:34px}
+  .opt .pick{display:inline-block;margin-top:10px;font-size:12px;font-weight:800;color:transparent;border:1.5px solid var(--line);border-radius:999px;padding:4px 14px}
+  .opt.sel .pick{color:#fff;background:var(--ink);border-color:var(--ink)}
+  .bar-summary{position:fixed;bottom:0;left:0;right:0;background:#16161a;color:#fff;z-index:20;display:flex;align-items:center;gap:14px;padding:13px 18px;box-shadow:0 -6px 20px rgba(0,0,0,.18);font-size:13px;flex-wrap:wrap}
+  .bar-summary .lbl{font-weight:800;letter-spacing:1px}
+  .bar-summary #sel{color:#cdd5ff;font-weight:700}
+  .bar-summary a{color:#fff;border:1px solid #555;padding:7px 14px;border-radius:8px;text-decoration:none;margin-left:auto;background:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <a href="index.html" style="color:var(--muted);font-size:12px;text-decoration:none">← 返回总览</a>
+    <h1 style="margin-top:8px">论对错 &amp; 比输赢 —— 图标选型（v3）</h1>
+    <p>改用 <b>Material 官方图标库的 Sharp（锐利）变体</b>——直角、凌厉、不圆润；App 里用 Flutter 自带的同名图标，不需要额外加库。按 80（空白态大小）预览，点「选这个」标记。</p>
+    <div class="note">比输赢没有现成的「1/2/3 领奖台」图标；最接近的是「领奖台柱 leaderboard」和「军功星 military_tech」。字母 VS 也没有官方图标，所以先略过。</div>
+  </header>
+
+  <div class="sec-h2"><span class="n" style="background:var(--right)">一</span> 论对错 · 天平（Sharp 锐利版）</div>
+  <div class="sec-sub">不再是圆润的；全部是直角锐利线条的官方图标。</div>
+  <div class="grid">
+
+    <div class="opt" onclick="choose(this,'论对错 · 天平 scale')">
+      <div class="stage" style="background:#f6efe2;color:var(--right)"><span class="mat">scale</span></div>
+      <div class="name">天平</div>
+      <div class="des">scale · 经典天平 Sharp 版，直角锐利（App 里是 Icons.scale_sharp）。</div>
+      <span class="pick">选这个</span>
+    </div>
+
+    <div class="opt" onclick="choose(this,'论对错 · 天平 balance')">
+      <div class="stage" style="background:#f6efe2;color:var(--right)"><span class="mat">balance</span></div>
+      <div class="name">天平</div>
+      <div class="des">balance · 另一种天平造型（Icons.balance_sharp），更细的横梁。</div>
+      <span class="pick">选这个</span>
+    </div>
+
+    <div class="opt" onclick="choose(this,'论对错 · 法槌 gavel')">
+      <div class="stage" style="background:#f6efe2;color:var(--right)"><span class="mat">gavel</span></div>
+      <div class="name">法槌</div>
+      <div class="des">gavel · 落槌定夺（Icons.gavel_sharp），裁决感更强。</div>
+      <span class="pick">选这个</span>
+    </div>
+
+    <div class="opt" onclick="choose(this,'论对错 · 柱式 account_balance')">
+      <div class="stage" style="background:#f6efe2;color:var(--right)"><span class="mat">account_balance</span></div>
+      <div class="name">柱式</div>
+      <div class="des">account_balance · 殿堂立柱，威严庄重（Icons.account_balance_sharp）。</div>
+      <span class="pick">选这个</span>
+    </div>
+
+  </div>
+
+  <div class="sec-h2"><span class="n" style="background:var(--win)">二</span> 比输赢 · 领奖台柱 / 军功 / 奖杯（Sharp 版）</div>
+  <div class="sec-sub">全部真实库图标、直角锐利；最贴「第一/二/三名」的是前两个。</div>
+  <div class="grid">
+
+    <div class="opt" onclick="choose(this,'比输赢 · 领奖台柱 leaderboard')">
+      <div class="stage" style="background:#ececf1;color:var(--win)"><span class="mat">leaderboard</span></div>
+      <div class="name">领奖台柱</div>
+      <div class="des">leaderboard · 三根柱排座次，最像领奖台（Icons.leaderboard_sharp）。</div>
+      <span class="pick">选这个</span>
+    </div>
+
+    <div class="opt" onclick="choose(this,'比输赢 · 军功星 military_tech')">
+      <div class="stage" style="background:#ececf1;color:var(--win)"><span class="mat">military_tech</span></div>
+      <div class="name">军功星</div>
+      <div class="des">military_tech · 勋章星，非常凌厉有「战功」味（Icons.military_tech_sharp）。</div>
+      <span class="pick">选这个</span>
+    </div>
+
+    <div class="opt" onclick="choose(this,'比输赢 · 奖牌 workspace_premium')">
+      <div class="stage" style="background:#ececf1;color:var(--win)"><span class="mat">workspace_premium</span></div>
+      <div class="name">奖牌</div>
+      <div class="des">workspace_premium · 绶带奖牌（Icons.workspace_premium_sharp）。</div>
+      <span class="pick">选这个</span>
+    </div>
+
+    <div class="opt" onclick="choose(this,'比输赢 · 奖杯 emoji_events')">
+      <div class="stage" style="background:#ececf1;color:var(--win)"><span class="mat">emoji_events</span></div>
+      <div class="name">奖杯</div>
+      <div class="des">emoji_events · 奖杯 Sharp 版（Icons.emoji_events_sharp），比现在的圆润版更利落。</div>
+      <span class="pick">选这个</span>
+    </div>
+
+    <div class="opt" onclick="choose(this,'比输赢 · 比分牌 sports_score')">
+      <div class="stage" style="background:#ececf1;color:var(--win)"><span class="mat">sports_score</span></div>
+      <div class="name">比分牌</div>
+      <div class="des">sports_score · 比赛计分牌（Icons.sports_score_sharp），胜负一目了然。</div>
+      <span class="pick">选这个</span>
+    </div>
+
+    <div class="opt" onclick="choose(this,'比输赢 · 闪电 bolt')">
+      <div class="stage" style="background:#ececf1;color:var(--win)"><span class="mat">bolt</span></div>
+      <div class="name">闪电</div>
+      <div class="des">bolt · 一击定胜负的爆发感（Icons.bolt_sharp）。</div>
+      <span class="pick">选这个</span>
+    </div>
+
+  </div>
+
+  <div class="bar-summary">
+    <span class="lbl">你选的图标：</span><span id="sel">（还没选）</span>
+    <a href="index.html">返回总览</a>
+  </div>
+</div>
+
+<script>
+  function choose(el, name){
+    const had = el.classList.contains('sel');
+    document.querySelectorAll('.opt.sel').forEach(o=>o.classList.remove('sel'));
+    if(had){ document.getElementById('sel').textContent='（还没选）'; return; }
+    el.classList.add('sel');
+    document.getElementById('sel').textContent = name;
+  }
+</script>
+</body>
+</html>

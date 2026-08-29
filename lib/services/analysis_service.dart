@@ -83,6 +83,9 @@ class AnalysisService {
       system: prompt,
       user: user,
       images: images,
+      // 思考（reasoning）+ 维度卡片 JSON 一起输出，给足输出上限，
+      // 避免「只思考、没正文」或 JSON 被截断的失败。
+      maxTokens: 8192,
       onThinking: onThinking == null
           ? null
           : (delta) {

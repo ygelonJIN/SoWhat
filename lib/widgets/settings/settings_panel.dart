@@ -9,6 +9,7 @@ import '../../models/models.dart';
 import '../../services/conversation_transfer_service.dart';
 import '../../providers/app_providers.dart';
 import '../../screens/ai_config_screen.dart';
+import '../../theme/fold_decoration.dart';
 import '../../theme/mode_theme.dart';
 import '../../utils/format.dart';
 import '../feedback/feedback.dart';
@@ -23,24 +24,6 @@ Color _modeDanger(ModeTheme mode) {
     case BattleView.win:
       return const Color(0xFFE5484D); // 比输赢：纯红
   }
-}
-
-/// 卡片表面装饰（底色 / 圆角 / 边框 / 阴影），用于菜单、弹窗等浮层。
-BoxDecoration _cardSurface(ModeTheme mode) {
-  return BoxDecoration(
-    color: mode.cardBackground,
-    borderRadius: mode.cardRadius,
-    border: Border.all(color: mode.cardBorder, width: 1),
-    boxShadow: [
-      BoxShadow(
-        color: Colors.black.withValues(
-          alpha: (mode.cardShadowAlpha + 0.08).clamp(0, 1),
-        ),
-        blurRadius: 24,
-        offset: const Offset(0, 10),
-      ),
-    ],
-  );
 }
 
 /// 菜单项分割线（跟随模式的卡片边框色）。
@@ -327,10 +310,22 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
       builder: (_) => Dialog(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        child: Container(
+        child: CutBox(
           width: 300,
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          decoration: _cardSurface(mode),
+          fold: mode.cornerFold,
+          color: mode.cardBackground,
+          borderRadius: mode.cardRadius,
+          border: Border.all(color: mode.cardBorder, width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: (mode.cardShadowAlpha + 0.08).clamp(0, 1),
+              ),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+          ],
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -474,9 +469,10 @@ class _RowActionMenu extends StatelessWidget {
           top: top,
           child: Material(
             color: mode.cardBackground,
-            shape: RoundedRectangleBorder(
+            shape: FoldShape(
               borderRadius: mode.cardRadius,
               side: BorderSide(color: mode.cardBorder, width: 1),
+              fold: mode.cornerFold,
             ),
             clipBehavior: Clip.antiAlias,
             elevation: 14,
@@ -603,10 +599,22 @@ class _ConfirmDeleteDialogState extends State<_ConfirmDeleteDialog> {
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      child: Container(
+      child: CutBox(
         width: 300,
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-        decoration: _cardSurface(mode),
+        fold: mode.cornerFold,
+        color: mode.cardBackground,
+        borderRadius: mode.cardRadius,
+        border: Border.all(color: mode.cardBorder, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: (mode.cardShadowAlpha + 0.08).clamp(0, 1),
+            ),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -760,7 +768,7 @@ class _DialogGhostButton extends StatelessWidget {
       onPressed: onTap,
       style: TextButton.styleFrom(
         padding: const EdgeInsets.symmetric(vertical: 11),
-        shape: RoundedRectangleBorder(borderRadius: mode.chipRadius),
+        shape: FoldShape(borderRadius: mode.chipRadius, fold: mode.cornerFold),
       ),
       child: Text(
         label,
@@ -786,9 +794,17 @@ class _DialogPrimaryButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: mode.primary,
-      borderRadius: mode.chipRadius,
+      shape: FoldShape(borderRadius: mode.chipRadius, fold: mode.cornerFold),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: mode.chipRadius,
+        borderRadius: mode.cornerFold ? null : mode.chipRadius,
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 11),
@@ -823,9 +839,17 @@ class _DialogDangerButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: _modeDanger(mode),
-      borderRadius: mode.chipRadius,
+      shape: FoldShape(borderRadius: mode.chipRadius, fold: mode.cornerFold),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: mode.chipRadius,
+        borderRadius: mode.cornerFold ? null : mode.chipRadius,
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 11),
@@ -882,12 +906,11 @@ class _SettingsSearchField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: mode.chipBackground,
-        borderRadius: mode.inputRadius,
-        border: Border.all(color: mode.chipBorder),
-      ),
+    return CutBox(
+      fold: mode.cornerFold,
+      color: mode.chipBackground,
+      borderRadius: mode.inputRadius,
+      border: Border.all(color: mode.chipBorder),
       child: TextField(
         controller: controller,
         onChanged: onChanged,
@@ -943,14 +966,23 @@ class _PrimaryActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: mode.actionChipBackground,
-      shape: RoundedRectangleBorder(
+      shape: FoldShape(
         borderRadius: mode.chipRadius,
         side: BorderSide(color: mode.actionChipBorder, width: 1),
+        fold: mode.cornerFold,
       ),
       elevation: 2,
       shadowColor: Colors.black.withValues(alpha: 0.18),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: mode.chipRadius,
+        borderRadius: mode.cornerFold ? null : mode.chipRadius,
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 13),
@@ -1002,12 +1034,21 @@ class _SecondaryActionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: mode.chipBackground,
-      shape: RoundedRectangleBorder(
+      shape: FoldShape(
         borderRadius: mode.chipRadius,
         side: BorderSide(color: mode.chipBorder, width: 1),
+        fold: mode.cornerFold,
       ),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: mode.chipRadius,
+        borderRadius: mode.cornerFold ? null : mode.chipRadius,
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 11),
@@ -1105,10 +1146,22 @@ class _AssetManagementScreenState
       builder: (_) => Dialog(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        child: Container(
+        child: CutBox(
           width: 300,
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          decoration: _cardSurface(mode),
+          fold: mode.cornerFold,
+          color: mode.cardBackground,
+          borderRadius: mode.cardRadius,
+          border: Border.all(color: mode.cardBorder, width: 1),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(
+                alpha: (mode.cardShadowAlpha + 0.08).clamp(0, 1),
+              ),
+              blurRadius: 24,
+              offset: const Offset(0, 10),
+            ),
+          ],
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1313,9 +1366,10 @@ class _ConversationAssetGroupState extends State<_ConversationAssetGroup> {
 
     return Material(
       color: mode.cardBackground,
-      shape: RoundedRectangleBorder(
+      shape: FoldShape(
         borderRadius: mode.cardRadius,
         side: BorderSide(color: mode.cardBorder, width: 1),
+        fold: mode.cornerFold,
       ),
       clipBehavior: Clip.antiAlias,
       child: Column(
@@ -1403,13 +1457,22 @@ class _GroupDeleteButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: Colors.transparent,
-      shape: RoundedRectangleBorder(
+      shape: FoldShape(
         borderRadius: BorderRadius.circular(10),
         side: BorderSide(color: mode.primary.withValues(alpha: 0.35)),
+        fold: mode.cornerFold,
       ),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onDelete,
-        borderRadius: BorderRadius.circular(10),
+        borderRadius: mode.cornerFold ? null : BorderRadius.circular(10),
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           child: Row(
@@ -1624,16 +1687,22 @@ class _ConversationRowState extends ConsumerState<_ConversationRow> {
         child: Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: mode.cardRadius,
+            borderRadius: mode.cornerFold ? null : mode.cardRadius,
+            customBorder: mode.cornerFold
+                ? FoldShape(
+                    borderRadius: BorderRadius.zero,
+                    side: BorderSide.none,
+                    fold: true,
+                  )
+                : null,
             onTap: widget.onTap,
-            child: Container(
+            child: CutBox(
               // 左侧留白比右侧多，文字整体右移。
               padding: const EdgeInsets.fromLTRB(20, 7, 14, 7),
-              decoration: BoxDecoration(
-                color: rowBackground,
-                borderRadius: mode.cardRadius,
-                border: Border.all(color: rowBorder, width: 1),
-              ),
+              fold: mode.cornerFold,
+              color: rowBackground,
+              borderRadius: mode.cardRadius,
+              border: Border.all(color: rowBorder, width: 1),
               child: Row(
                 children: [
                   Flexible(
@@ -1877,10 +1946,22 @@ class _RenameDialogState extends State<_RenameDialog> {
     return Dialog(
       backgroundColor: Colors.transparent,
       elevation: 0,
-      child: Container(
+      child: CutBox(
         width: 292,
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-        decoration: _cardSurface(mode),
+        fold: mode.cornerFold,
+        color: mode.cardBackground,
+        borderRadius: mode.cardRadius,
+        border: Border.all(color: mode.cardBorder, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(
+              alpha: (mode.cardShadowAlpha + 0.08).clamp(0, 1),
+            ),
+            blurRadius: 24,
+            offset: const Offset(0, 10),
+          ),
+        ],
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1896,12 +1977,11 @@ class _RenameDialogState extends State<_RenameDialog> {
               ),
             ),
             const SizedBox(height: 14),
-            Container(
-              decoration: BoxDecoration(
-                color: mode.chipBackground,
-                borderRadius: mode.inputRadius,
-                border: Border.all(color: mode.chipBorder),
-              ),
+            CutBox(
+              fold: mode.cornerFold,
+              color: mode.chipBackground,
+              borderRadius: mode.inputRadius,
+              border: Border.all(color: mode.chipBorder),
               child: TextField(
                 controller: _controller,
                 autofocus: true,

@@ -13,12 +13,14 @@ import 'package:path_provider/path_provider.dart';
 import '../models/models.dart';
 import '../providers/app_providers.dart';
 import '../screens/memory_screen.dart';
+import '../theme/fold_decoration.dart';
 import '../theme/mode_theme.dart';
 import '../utils/format.dart';
 import '../widgets/battle/battle_canvas.dart';
 import '../widgets/battle/image_fan_gallery.dart';
 import '../widgets/buttons/pill_button.dart';
 import '../widgets/feedback/feedback.dart';
+import '../widgets/feedback/uploading_dialog.dart';
 import '../widgets/input/chat_composer.dart';
 import '../widgets/settings/settings_panel.dart';
 
@@ -101,8 +103,21 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   bool _keyboardVisible = false;
   bool _settingsOpen = false;
 
+  /// 底部模式选择器是否处于展开态（点旁边空白处 / 选中后自动收起）。
+  bool _modeExpanded = false;
+
   /// 暂存的待发送图片（选图后先挂在这里，点「发送」才写入对话并发给模型）。
+  /// 三个模式共用同一批暂存图片：发送后当前模式不再显示（见
+  /// [_stagedImagesConsumedBy]），其他模式仍可见可发。
   final List<String> _stagedImages = [];
+
+  /// 已「消费」过当前暂存图片的模式：在该模式下点过发送后，这个模式的扇面
+  /// 不再显示这批图片，但图片仍保留在暂存区供其他模式复用；三个模式都发送
+  /// 过后自动清空暂存（图片随发送进入对话历史，不再常驻扇面）。
+  final Set<BattleView> _stagedImagesConsumedBy = {};
+
+  /// 正在选图/压缩（防止连点附着按钮重复弹出系统相册）。
+  bool _pickingImages = false;
 
   /// 当前打开的对话 id（设置页切换对话 / 新建对话时变化）。
   /// 首帧前可能尚未解析（provider 初始为 null），返回空串让界面先渲染空态，
@@ -154,12 +169,16 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     }
   }
 
-  /// 点聊天空白处：收起键盘，若扇面处于放大态则同时缩回最小态。
+  /// 点聊天空白处：收起键盘，若扇面处于放大态则同时缩回最小态，
+  /// 并收起底部展开的模式选项。
   void _dismissKeyboardAndCollapseFan() {
     if (_keyboardVisible) {
       FocusScope.of(context).unfocus();
     }
     _collapseFan();
+    if (_modeExpanded) {
+      setState(() => _modeExpanded = false);
+    }
   }
 
   void _onFanPeekChanged(bool peeked) {
@@ -243,8 +262,11 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
           .cleanupEmptyConversation(previousId);
     }
     // 切换对话时不取消后台分析；每个对话和模式的任务彼此独立并行运行。
-    if (_stagedImages.isNotEmpty) {
-      setState(() => _stagedImages.clear());
+    if (_stagedImages.isNotEmpty || _stagedImagesConsumedBy.isNotEmpty) {
+      setState(() {
+        _stagedImages.clear();
+        _stagedImagesConsumedBy.clear();
+      });
     }
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(0);
@@ -281,20 +303,29 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   /// 清除暂存的图片（点扇面展开后的 ✕）；尚未发送，不触碰对话数据。
   void _clearStagedImages() {
     _collapseFan();
-    if (_stagedImages.isEmpty) return;
-    setState(() => _stagedImages.clear());
+    if (_stagedImages.isEmpty && _stagedImagesConsumedBy.isEmpty) return;
+    setState(() {
+      _stagedImages.clear();
+      _stagedImagesConsumedBy.clear();
+    });
     ref.read(debugStatusProvider.notifier).state = '已清除暂存图片';
   }
 
   /// 发送：文字 + 暂存图片一起写入对话，并触发分析（图片此时才真正发给模型）。
   Future<void> _sendMessage() async {
     final text = _messageController.text.trim();
-    final hasImages = _stagedImages.isNotEmpty;
+    final analysisView = ref.read(selectedBattleViewProvider);
+    // 当前模式已经发送过这批图片（已作为消息进入对话）时，不再重复写入，
+    // 避免同一批图在对话里堆积重复消息；尚未发送的模式照常发出。
+    final imagesToSend = _stagedImagesConsumedBy.contains(analysisView)
+        ? const <String>[]
+        : List<String>.unmodifiable(_stagedImages);
+    final hasImages = imagesToSend.isNotEmpty;
     if (text.isEmpty && !hasImages) return;
     try {
       // 允许并行分析：不再先取消上一轮分析。
       ref.read(debugStatusProvider.notifier).state = hasImages
-          ? '发送文字 + ${_stagedImages.length} 张图片…'
+          ? '发送文字 + ${imagesToSend.length} 张图片…'
           : '发送消息并触发分析…';
       if (text.isNotEmpty) {
         await ref
@@ -305,8 +336,8 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
               content: text,
             );
       }
-      for (var i = 0; i < _stagedImages.length; i++) {
-        final assetPath = _stagedImages[i];
+      for (var i = 0; i < imagesToSend.length; i++) {
+        final assetPath = imagesToSend[i];
         final file = File(assetPath);
         final asset = Asset(
           path: assetPath,
@@ -329,9 +360,18 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
             );
       }
       _messageController.clear();
-      // 发送后暂存图片仍保留在右上角扇面：切换其他模式后可直接再次发送
-      //（每个模式各自的分析），无需重新上传；想移除时点扇面展开后的 ✕。
-      final analysisView = ref.read(selectedBattleViewProvider);
+      // 发送后：当前模式不再显示这批暂存图片（其他模式仍共享可见可发）；
+      // 三个模式都发送过之后自动清空暂存，避免图片「永远存在」。
+      // 只有这次真正把图片发出去才标记消费；纯文字发送不消耗图片。
+      if (hasImages) {
+        setState(() {
+          _stagedImagesConsumedBy.add(analysisView);
+          if (_stagedImagesConsumedBy.length >= BattleView.values.length) {
+            _stagedImages.clear();
+            _stagedImagesConsumedBy.clear();
+          }
+        });
+      }
       unawaited(_runAnalysis(view: analysisView));
     } catch (_) {
       _showError('发送失败，请稍后重试。');
@@ -348,11 +388,39 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   ///   返回（已核实插件源码），所以 PNG（尤其截图）在这里用纯 Dart 解码
   ///   并重编码为 JPEG q90，与实测选定的压缩效果一致；
   /// - 已压缩的小体积 JPEG（≤2MB）直接使用，避免二次编码损耗。
+  ///
+  /// 图片多、压缩耗时可能较长：选图与压缩全程展示主题化「正在上传图片」
+  /// 弹窗（进度条 + 张数提示），处理完自动收起。
   Future<void> _pickImages() async {
+    if (_pickingImages) return;
+    _pickingImages = true;
+    final mode = ModeThemes.of(ref.read(selectedBattleViewProvider));
+    final progress = ValueNotifier<UploadingProgress>(
+      const UploadingProgress(done: 0, total: 0, stage: '正在打开相册…'),
+    );
+    final rootNavigator = Navigator.of(context, rootNavigator: true);
+    final dialogRoute = DialogRoute<void>(
+      context: context,
+      builder: (_) => UploadingDialog(mode: mode, progress: progress),
+      barrierDismissible: false,
+      useSafeArea: true,
+    );
+    unawaited(rootNavigator.push(dialogRoute));
+
+    // 只关闭上传弹窗本身：处理期间若有并行分析失败弹出了错误弹窗，
+    // 不能直接 pop（会把顶层的错误弹窗关掉、上传弹窗残留卡住）。
+    void closeUploadDialog() {
+      if (dialogRoute.isActive && dialogRoute.navigator != null) {
+        dialogRoute.navigator!.removeRoute(dialogRoute);
+      }
+    }
+
     try {
       ref.read(debugStatusProvider.notifier).state = '正在选择图片…';
       final images = await _imagePicker.pickMultiImage(imageQuality: 90);
       if (images.isEmpty) {
+        closeUploadDialog();
+        progress.dispose();
         ref.read(debugStatusProvider.notifier).state = '未选择图片';
         return;
       }
@@ -362,11 +430,22 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
       final assetDirectory = await getApplicationDocumentsDirectory();
       final assetsDirectory = Directory(p.join(assetDirectory.path, 'assets'));
       await assetsDirectory.create(recursive: true);
+      final total = images.length;
       for (var i = 0; i < images.length; i++) {
         final sourcePath = images[i].path;
-        if (existing.contains(sourcePath)) continue;
-        ref.read(debugStatusProvider.notifier).state =
-            '正在压缩图片 ${added.length + 1}/${images.length}…';
+        if (existing.contains(sourcePath)) {
+          progress.value = UploadingProgress(
+            done: i + 1,
+            total: total,
+            stage: '跳过重复图片 ${i + 1}/$total…',
+          );
+          continue;
+        }
+        progress.value = UploadingProgress(
+          done: i,
+          total: total,
+          stage: '正在压缩图片 ${i + 1}/$total…',
+        );
         // 官方限制：单张图片的 Base64 字符串不能超过 50 MB。
         final sourceFile = File(sourcePath);
         final base64Size = (await sourceFile.length() + 2) ~/ 3 * 4;
@@ -395,15 +474,30 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
         await target.writeAsBytes(outputBytes, flush: true);
         added.add(target.path);
         existing.add(target.path);
+        progress.value = UploadingProgress(
+          done: added.length,
+          total: total,
+          stage: '已处理 ${added.length}/$total…',
+        );
       }
-      setState(() => _stagedImages.addAll(added));
+      closeUploadDialog();
+      progress.dispose();
+      setState(() {
+        _stagedImages.addAll(added);
+        // 新一批图片对所有模式重新可见（都还没在该模式下发送过）。
+        _stagedImagesConsumedBy.clear();
+      });
       if (skippedOversize > 0) {
         _showSnackBar('有 $skippedOversize 张图片超过官方 50 MB Base64 限制，已跳过');
       }
       ref.read(debugStatusProvider.notifier).state =
           '已暂存 ${_stagedImages.length} 张图片（已压缩为 JPEG），点「发送」才真正发出';
     } catch (error) {
+      closeUploadDialog();
+      progress.dispose();
       _showError('截图导入失败，请检查相册权限。', error);
+    } finally {
+      _pickingImages = false;
     }
   }
 
@@ -425,8 +519,10 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
         );
       }
     } catch (error) {
-      if (ref.read(selectedConversationIdProvider) == conversationId &&
-          ref.read(selectedBattleViewProvider) == view) {
+      // 无论用户当前停留在哪个模式，只要还在这段对话里就要让失败可见：
+      // 否则切换到其他模式后，失败的思考框只会显示「思考完成」、没有任何
+      // 输出也没有错误提示（静默失败）。
+      if (ref.read(selectedConversationIdProvider) == conversationId) {
         ref.read(debugStatusProvider.notifier).state = '分析失败：$error';
         _showError('分析失败，请稍后重试。', error, ModeThemes.of(view));
       }
@@ -439,6 +535,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
 
   Future<void> _selectView(BattleView view) async {
     if (view == ref.read(selectedBattleViewProvider)) return;
+    if (_modeExpanded) {
+      setState(() => _modeExpanded = false);
+    }
     ref.read(selectedBattleViewProvider.notifier).state = view;
     ref
         .read(repositoryActionsProvider)
@@ -498,19 +597,15 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     });
 
     final messages = messagesAsync.valueOrNull ?? const [];
-    // 扇面固定展示「本对话已发送 + 正在暂存」的全部图片：
-    // 已发送的截图随对话永久保留（切换模式仍共用同一批图），暂存的待发送图
-    // 附加在末尾，可随时用扇面展开后的 ✕ 移除（只移除暂存、不影响已发送）。
-    final sentImagePaths = <String>[
-      for (final m in messages)
-        if (m.isImageType && (m.assetPath?.isNotEmpty ?? false)) m.assetPath!,
-    ];
-    final seen = <String>{...sentImagePaths};
-    final screenshotPaths = List<String>.unmodifiable([
-      ...sentImagePaths,
-      for (final p in _stagedImages)
-        if (seen.add(p)) p,
-    ]);
+    // 扇面只展示「当前模式尚未发送」的暂存图片：点「发送」后这批图片进入
+    // 对话历史、当前模式的扇面不再显示（其他模式仍共享可见可发）；三个模式
+    // 都发送过后自动清空暂存。已发送进对话的图片不再常驻扇面。
+    final showStagedImages =
+        _stagedImages.isNotEmpty &&
+        !_stagedImagesConsumedBy.contains(selectedView);
+    final screenshotPaths = showStagedImages
+        ? List<String>.unmodifiable(_stagedImages)
+        : const <String>[];
 
     return Theme(
       data: mode.themeData,
@@ -621,6 +716,31 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
             ),
           ),
         ),
+        // 顶部遮罩：压在滚动内容之上，让从下方滚到顶部浮层（右上角日期、
+        // 扇面）下的内容柔和淡出，与底部遮罩对称。
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 220,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    mode.background.withValues(alpha: 1.0),
+                    mode.background.withValues(alpha: 0.9),
+                    mode.background.withValues(alpha: 0.48),
+                    mode.background.withValues(alpha: 0),
+                  ],
+                  stops: const [0.0, 0.34, 0.72, 1.0],
+                ),
+              ),
+            ),
+          ),
+        ),
         if (_isFanPeeked)
           Positioned.fill(
             child: IgnorePointer(
@@ -708,6 +828,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                       child: _ModeMemoryBar(
                         mode: mode,
                         selectedView: selectedView,
+                        expanded: _modeExpanded,
+                        onToggleExpanded: () =>
+                            setState(() => _modeExpanded = !_modeExpanded),
                         onSelected: _selectView,
                         onMemory: _openMemory,
                       ),
@@ -723,6 +846,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                     onInputTap: _collapseFan,
                     isAnalyzing: false,
                     pendingCount: _stagedImages.length,
+                    pendingAlreadySent: _stagedImagesConsumedBy.contains(
+                      selectedView,
+                    ),
                   ),
                 ],
               ),
@@ -774,43 +900,32 @@ class _FloatingTopChrome extends StatelessWidget {
 }
 
 /// 底部操作条：一行摆放「记忆 + 当前模式」两个同尺寸主色按钮；点击模式按钮
-/// 向上展开另外两个模式（当前选中已显示在按钮上，不再重复展开），选中后收起。
+/// 向上展开另外两个模式（当前选中已显示在按钮上，不再重复展开），选中后收起；
+/// 点展开区以外的空白处也会收起（由父级监听画布点击处理）。
 /// 展开选项沿用旧的分段按钮样式（当前模式的未选中描边胶囊）。
 /// 因父级 Column 底贴屏幕，展开内容整体向上顶开，不遮挡输入框。
-class _ModeMemoryBar extends StatefulWidget {
+class _ModeMemoryBar extends StatelessWidget {
   const _ModeMemoryBar({
     required this.mode,
     required this.selectedView,
+    required this.expanded,
+    required this.onToggleExpanded,
     required this.onSelected,
     required this.onMemory,
   });
 
   final ModeTheme mode;
   final BattleView selectedView;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
   final ValueChanged<BattleView> onSelected;
   final VoidCallback onMemory;
 
-  @override
-  State<_ModeMemoryBar> createState() => _ModeMemoryBarState();
-}
-
-class _ModeMemoryBarState extends State<_ModeMemoryBar> {
-  static const _views = [
-    BattleView.love,
-    BattleView.right,
-    BattleView.win,
-  ];
-
-  bool _expanded = false;
-
-  void _select(BattleView view) {
-    setState(() => _expanded = false);
-    widget.onSelected(view);
-  }
+  static const _views = [BattleView.love, BattleView.right, BattleView.win];
 
   @override
   Widget build(BuildContext context) {
-    final selected = widget.selectedView;
+    final selected = selectedView;
     // 展开时只显示「另外两个」模式：当前选中的已展示在触发按钮上。
     final options = [
       for (final v in _views)
@@ -825,13 +940,13 @@ class _ModeMemoryBarState extends State<_ModeMemoryBar> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
-          if (_expanded) ...[
+          if (expanded) ...[
             for (var i = 0; i < options.length; i++) ...[
               if (i > 0) const SizedBox(height: 8),
               _ModeOptionButton(
-                mode: widget.mode,
+                mode: mode,
                 label: ModeThemes.of(options[i]).title,
-                onTap: () => _select(options[i]),
+                onTap: () => onSelected(options[i]),
               ),
             ],
             const SizedBox(height: 12),
@@ -840,20 +955,20 @@ class _ModeMemoryBarState extends State<_ModeMemoryBar> {
             mainAxisSize: MainAxisSize.min,
             children: [
               PillButton(
-                mode: widget.mode,
+                mode: mode,
                 icon: Icons.auto_stories_rounded,
                 label: '记忆',
                 highlight: true,
-                onTap: widget.onMemory,
+                onTap: onMemory,
               ),
               const SizedBox(width: 10),
               // 当前模式按钮与「记忆」同款同尺寸。
               PillButton(
-                mode: widget.mode,
+                mode: mode,
                 icon: Icons.unfold_more_rounded,
                 label: ModeThemes.of(selected).title,
                 highlight: true,
-                onTap: () => setState(() => _expanded = !_expanded),
+                onTap: onToggleExpanded,
               ),
             ],
           ),
@@ -880,14 +995,26 @@ class _ModeOptionButton extends StatelessWidget {
   Widget build(BuildContext context) {
     return Material(
       color: mode.chipBackground,
-      shape: RoundedRectangleBorder(
+      shape: FoldShape(
         borderRadius: mode.chipRadius,
-        side: BorderSide(color: mode.chipBorder.withValues(alpha: 0.55), width: 1),
+        side: BorderSide(
+          color: mode.chipBorder.withValues(alpha: 0.55),
+          width: 1,
+        ),
+        fold: mode.cornerFold,
       ),
       elevation: 2,
       shadowColor: Colors.black.withValues(alpha: 0.16),
+      clipBehavior: Clip.antiAlias,
       child: InkWell(
-        borderRadius: mode.chipRadius,
+        borderRadius: mode.cornerFold ? null : mode.chipRadius,
+        customBorder: mode.cornerFold
+            ? FoldShape(
+                borderRadius: BorderRadius.zero,
+                side: BorderSide.none,
+                fold: true,
+              )
+            : null,
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 9),

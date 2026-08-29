@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../models/thinking.dart';
+import '../../theme/fold_decoration.dart';
 import '../../theme/mode_theme.dart';
 
 /// 思考过程框（符合主题规范：跟随 ModeTheme）。
@@ -49,7 +50,9 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
   void initState() {
     super.initState();
     _maybeStartTicker();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottomIfNeeded());
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _jumpToBottomIfNeeded(),
+    );
   }
 
   @override
@@ -61,12 +64,16 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
     }
     if (oldWidget.content != widget.content) {
       if (_autoFollow) {
-        WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottomIfNeeded());
+        WidgetsBinding.instance.addPostFrameCallback(
+          (_) => _jumpToBottomIfNeeded(),
+        );
       }
     }
     if (oldWidget.expanded != widget.expanded && widget.expanded) {
       _autoFollow = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottomIfNeeded());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _jumpToBottomIfNeeded(),
+      );
     }
   }
 
@@ -77,13 +84,15 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
       _elapsed = DateTime.now().difference(widget.startedAt!);
       _ticker = Timer.periodic(const Duration(milliseconds: 200), (_) {
         if (!mounted) return;
-        if (widget.status != ThinkingStatus.thinking || widget.startedAt == null) {
+        if (widget.status != ThinkingStatus.thinking ||
+            widget.startedAt == null) {
           _ticker?.cancel();
           return;
         }
         setState(() => _elapsed = DateTime.now().difference(widget.startedAt!));
       });
-    } else if (widget.status == ThinkingStatus.done && widget.startedAt != null) {
+    } else if (widget.status == ThinkingStatus.done &&
+        widget.startedAt != null) {
       final frozen = DateTime.now().difference(widget.startedAt!);
       if (_elapsed != frozen) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -107,7 +116,8 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
   }
 
   bool _handleScrollNotification(ScrollNotification notification) {
-    if (notification is ScrollUpdateNotification || notification is ScrollEndNotification) {
+    if (notification is ScrollUpdateNotification ||
+        notification is ScrollEndNotification) {
       if (!_scrollController.hasClients) return false;
       final pos = _scrollController.position;
       final atBottom = pos.pixels >= pos.maxScrollExtent - _bottomThreshold;
@@ -142,20 +152,19 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
     final statusText = isThinking ? '思考中' : '思考完成';
     final timeText = widget.startedAt == null ? '--' : _formatElapsed(_elapsed);
 
-    return Container(
-      decoration: BoxDecoration(
-        color: widget.mode.cardBackground,
-        borderRadius: widget.mode.cardRadius,
-        border: Border.all(color: widget.mode.cardBorder, width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: widget.mode.cardShadowAlpha),
-            blurRadius: 18,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
+    return CutBox(
+      fold: widget.mode.cornerFold,
       clipBehavior: Clip.antiAlias,
+      color: widget.mode.cardBackground,
+      borderRadius: widget.mode.cardRadius,
+      border: Border.all(color: widget.mode.cardBorder, width: 1),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withValues(alpha: widget.mode.cardShadowAlpha),
+          blurRadius: 18,
+          offset: const Offset(0, 8),
+        ),
+      ],
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -178,7 +187,11 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
                         ),
                       )
                     else
-                      Icon(Icons.check_circle_rounded, size: 16, color: widget.mode.primary),
+                      Icon(
+                        Icons.check_circle_rounded,
+                        size: 16,
+                        color: widget.mode.primary,
+                      ),
                     const SizedBox(width: 8),
                     Text(
                       statusText,
@@ -222,7 +235,11 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
             secondChild: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Divider(height: 1, thickness: 1, color: widget.mode.cardBorder.withValues(alpha: 0.6)),
+                Divider(
+                  height: 1,
+                  thickness: 1,
+                  color: widget.mode.cardBorder.withValues(alpha: 0.6),
+                ),
                 ConstrainedBox(
                   constraints: const BoxConstraints(maxHeight: _maxHeight),
                   child: NotificationListener<ScrollNotification>(
@@ -242,23 +259,39 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
                   GestureDetector(
                     onTap: () {
                       setState(() => _autoFollow = true);
-                      WidgetsBinding.instance.addPostFrameCallback((_) => _jumpToBottomIfNeeded());
+                      WidgetsBinding.instance.addPostFrameCallback(
+                        (_) => _jumpToBottomIfNeeded(),
+                      );
                     },
                     child: Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(vertical: 6),
                       decoration: BoxDecoration(
                         color: widget.mode.primary.withValues(alpha: 0.08),
-                        border: Border(top: BorderSide(color: widget.mode.cardBorder.withValues(alpha: 0.5))),
+                        border: Border(
+                          top: BorderSide(
+                            color: widget.mode.cardBorder.withValues(
+                              alpha: 0.5,
+                            ),
+                          ),
+                        ),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.arrow_downward_rounded, size: 12, color: widget.mode.primary),
+                          Icon(
+                            Icons.arrow_downward_rounded,
+                            size: 12,
+                            color: widget.mode.primary,
+                          ),
                           const SizedBox(width: 4),
                           Text(
                             '回到最新',
-                            style: TextStyle(color: widget.mode.primary, fontSize: 11, fontWeight: FontWeight.w600),
+                            style: TextStyle(
+                              color: widget.mode.primary,
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
                           ),
                         ],
                       ),
@@ -266,7 +299,9 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
                   ),
               ],
             ),
-            crossFadeState: widget.expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
+            crossFadeState: widget.expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
             duration: const Duration(milliseconds: 220),
           ),
         ],
@@ -279,12 +314,20 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
     if (text.isEmpty) {
       return Text(
         widget.status == ThinkingStatus.thinking ? '正在理解对话与记忆…' : '—',
-        style: TextStyle(color: widget.mode.cardMuted, fontSize: 12.5, height: 1.6),
+        style: TextStyle(
+          color: widget.mode.cardMuted,
+          fontSize: 12.5,
+          height: 1.6,
+        ),
       );
     }
     return Text(
       text,
-      style: TextStyle(color: widget.mode.cardBody, fontSize: 12.5, height: 1.65),
+      style: TextStyle(
+        color: widget.mode.cardBody,
+        fontSize: 12.5,
+        height: 1.65,
+      ),
     );
   }
 }
@@ -296,12 +339,16 @@ class _ThinkingDots extends StatefulWidget {
   State<_ThinkingDots> createState() => _ThinkingDotsState();
 }
 
-class _ThinkingDotsState extends State<_ThinkingDots> with SingleTickerProviderStateMixin {
+class _ThinkingDotsState extends State<_ThinkingDots>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _c;
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))..repeat();
+    _c = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
   }
 
   @override
@@ -334,7 +381,10 @@ class _ThinkingDotsState extends State<_ThinkingDots> with SingleTickerProviderS
                 child: Container(
                   width: 4,
                   height: 4,
-                  decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle),
+                  decoration: BoxDecoration(
+                    color: widget.color,
+                    shape: BoxShape.circle,
+                  ),
                 ),
               ),
             );

@@ -185,6 +185,8 @@ class AiClient {
 
       final contentBuf = StringBuffer();
       var buffer = '';
+      var receivedThinking = false;
+      var finishedByLength = false;
       await for (final chunk in response.transform(utf8.decoder)) {
         buffer += chunk;
         final lines = buffer.split('\n');
@@ -206,6 +208,7 @@ class AiClient {
           if (decoded is! Map) continue;
           final thinkingDelta = _extractStreamThinking(config.protocol, decoded);
           if (thinkingDelta != null && thinkingDelta.isNotEmpty) {
+            receivedThinking = true;
             onThinking?.call(thinkingDelta);
           }
           final contentDelta = _extractStreamContent(config.protocol, decoded);
@@ -214,7 +217,7 @@ class AiClient {
             onContent?.call(contentDelta);
           }
           final finish = decoded['finish_reason'] ?? decoded['stop_reason'];
-          if (finish != null && finish is String && finish.isNotEmpty) {}
+          if (finish is String && finish == 'length') finishedByLength = true;
         }
       }
       // tail
@@ -226,18 +229,29 @@ class AiClient {
             final decoded = jsonDecode(data);
             if (decoded is Map) {
               final thinkingDelta = _extractStreamThinking(config.protocol, decoded);
-              if (thinkingDelta != null && thinkingDelta.isNotEmpty) onThinking?.call(thinkingDelta);
+              if (thinkingDelta != null && thinkingDelta.isNotEmpty) {
+                receivedThinking = true;
+                onThinking?.call(thinkingDelta);
+              }
               final contentDelta = _extractStreamContent(config.protocol, decoded);
               if (contentDelta != null && contentDelta.isNotEmpty) {
                 contentBuf.write(contentDelta);
                 onContent?.call(contentDelta);
               }
+              final finish = decoded['finish_reason'] ?? decoded['stop_reason'];
+              if (finish is String && finish == 'length') finishedByLength = true;
             }
           } catch (_) {}
         }
       }
       final finalContent = contentBuf.toString().trim();
       if (finalContent.isEmpty) {
+        if (finishedByLength) {
+          throw const AiRequestException('响应被截断：输出达到长度上限，正文为空。请重试或减少本轮输入。');
+        }
+        if (receivedThinking) {
+          throw const AiRequestException('模型只输出了思考、没有生成正文。可能是思考过长占满了输出上限，请重试。');
+        }
         throw const AiRequestException('响应缺少文本内容。');
       }
       return finalContent;
@@ -598,13 +612,25 @@ class AiClient {
         final first = choices.first;
         if (first is Map) {
           final delta = first['delta'] is Map ? first['delta'] as Map : null;
-          if (delta != null && delta['content'] is String) return delta['content'] as String;
+          if (delta != null) {
+            final content = delta['content'];
+            if (content is String && content.isNotEmpty) return content;
+            final fromList = _textFromContentBlocks(content);
+            if (fromList != null) return fromList;
+          }
           final message = first['message'] is Map ? first['message'] as Map : null;
-          if (message != null && message['content'] is String) return message['content'] as String;
+          if (message != null) {
+            final content = message['content'];
+            if (content is String && content.isNotEmpty) return content;
+            final fromList = _textFromContentBlocks(content);
+            if (fromList != null) return fromList;
+          }
         }
       }
       final content = decoded['content'];
       if (content is String && content.isNotEmpty) return content;
+      final fromList = _textFromContentBlocks(content);
+      if (fromList != null) return fromList;
       return null;
     }
     final type = decoded['type'];
@@ -622,6 +648,23 @@ class AiClient {
     final text = decoded['text'];
     if (text is String && text.isNotEmpty) return text;
     return null;
+  }
+
+  /// 从多模态 content 数组里取文本（`[{type: text, text: ...}]` /
+  /// `output_text` 块），拼接后返回；取不到返回 null。
+  String? _textFromContentBlocks(Object? content) {
+    if (content is! List) return null;
+    final parts = <String>[];
+    for (final block in content) {
+      if (block is! Map) continue;
+      final type = block['type'];
+      if (type != null && type != 'text' && type != 'output_text') continue;
+      final text = block['text'] ?? block['content'];
+      if (text is String && text.isNotEmpty) parts.add(text);
+    }
+    if (parts.isEmpty) return null;
+    final joined = parts.join('\n').trim();
+    return joined.isEmpty ? null : joined;
   }
 
   /// 从错误响应体里截取一段可读的错误信息。

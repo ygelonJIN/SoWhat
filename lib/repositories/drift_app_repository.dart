@@ -5,6 +5,8 @@ import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../data/app_database.dart';
 import '../data/converters.dart' as cv;
@@ -21,7 +23,48 @@ String _mimeTypeForPath(String path) {
 
 class DriftAppRepository implements AppRepository {
   DriftAppRepository({AppDatabase? database})
-    : _db = database ?? AppDatabase.defaults();
+    : _db = database ?? AppDatabase.defaults() {
+    // 启动时异步重解析失效资产路径（应对重装后 iOS 沙盒容器路径变化）。
+    _rebaseStaleAssetPaths();
+  }
+
+  /// 把库中已失效的绝对资产路径重解析到当前「文档目录/assets」下的同名文件，
+  /// 并写回。幂等：仅当目标文件缺失、而 assets 目录下存在同名文件时改写。
+  ///
+  /// 解决「重装 / flutter run 重新部署后 iOS 沙盒容器路径变化，导致截图打不开、
+  /// 资产列表全空、分析自动跳过图片」的问题。失败静默，不影响启动。
+  Future<void> _rebaseStaleAssetPaths() async {
+    try {
+      final doc = await getApplicationDocumentsDirectory();
+      final assetsDir = p.join(doc.path, 'assets');
+      await _db.transaction(() async {
+        Future<void> rebase(String table, String column) async {
+          final rows = await _db
+              .customSelect(
+                'SELECT $column AS st FROM $table WHERE $column IS NOT NULL',
+              )
+              .get();
+          for (final row in rows) {
+            final stored = row.read<String>('st');
+            if (stored.isEmpty) continue;
+            if (await File(stored).exists()) continue;
+            final candidate = p.join(assetsDir, p.basename(stored));
+            if (candidate != stored && await File(candidate).exists()) {
+              await _db.customStatement(
+                'UPDATE $table SET $column = ? WHERE $column = ?',
+                [candidate, stored],
+              );
+            }
+          }
+        }
+
+        await rebase('messages', 'asset_path');
+        await rebase('assets', 'path');
+      });
+    } catch (_) {
+      // 资产重解析失败不阻塞启动；后续仍可能因路径失效看不到图片。
+    }
+  }
 
   final AppDatabase _db;
   static const _secureStorage = FlutterSecureStorage();
@@ -33,7 +76,14 @@ class DriftAppRepository implements AppRepository {
   final _assetController = StreamController<List<Asset>>.broadcast();
   final Map<String, StreamController<List<Message>>> _messageControllers = {};
   final Map<String, StreamController<List<Analysis>>> _analysisControllers = {};
-  final Map<String, StreamController<BattleState>> _battleControllers = {};
+  // 战场状态流必须按「对话 + 视角」隔离：三个视角并行分析时，某个视角
+  // 的思考持久化 / 分析完成都会发射状态；若只按对话共享一条流，会把别的
+  // 视角的状态广播给当前视角，导致卡片瞬间消失或串台。
+  final Map<
+    ({String conversationId, BattleView view}),
+    StreamController<BattleState>
+  >
+  _battleControllers = {};
 
   Future<void> _ensureReady() async {
     try {
@@ -399,7 +449,9 @@ class DriftAppRepository implements AppRepository {
   }
 
   void _emitBattle(String conversationId, BattleState state) {
-    final c = _battleControllers[conversationId];
+    // 只发给同「对话 + 视角」的订阅者，避免并行分析互相串台。
+    final c =
+        _battleControllers[(conversationId: conversationId, view: state.view)];
     if (c != null && !c.isClosed) c.add(state);
   }
 
@@ -519,10 +571,10 @@ class DriftAppRepository implements AppRepository {
     BattleView view,
   ) async* {
     await _ensureReady();
-    final controller = _battleControllers.putIfAbsent(
-      conversationId,
-      () => StreamController<BattleState>.broadcast(),
-    );
+    final controller = _battleControllers.putIfAbsent((
+      conversationId: conversationId,
+      view: view,
+    ), () => StreamController<BattleState>.broadcast());
     yield await _loadBattle(conversationId, view);
     yield* controller.stream;
   }
@@ -968,8 +1020,8 @@ class DriftAppRepository implements AppRepository {
     }
     for (final entry in _battleControllers.entries.toList()) {
       _emitBattle(
-        entry.key,
-        await _loadBattle(entry.key, BattleView.values[0]),
+        entry.key.conversationId,
+        await _loadBattle(entry.key.conversationId, entry.key.view),
       );
     }
   }

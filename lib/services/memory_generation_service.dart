@@ -67,6 +67,7 @@ class MemoryGenerationService {
       ..writeln('本次输入可能来自 1 个、2 个或 3 个模式，请只根据实际提供的卡片进行融合，不要假设三种模式都存在。')
       ..writeln('同一对话未来不会重复写入长期记忆；你只负责输出当前这一次、对当前未消化卡片的统一归档。')
       ..writeln('如果同一对话里同时出现多个模式的卡片，请把它们合并成一份客观、稳定、去模式化的最终档案。')
+      ..writeln('称呼铁律（两人绝不能搞混）：「我」= 使用本 App 的人，也就是原对话里标着「我」的一方；「TA」= 另一人，也就是原对话里标着「TA」的一方。一律用「双方 / 我 / TA」，禁止「你、他、她、A、B、男方、女方、对方」等任何其他称呼；判断谁是谁时，以卡片证据里「我 / TA」的原文标签为准。')
       ..writeln('你只输出一个 JSON 对象，不要任何其他文字。')
       ..writeln()
       ..writeln('【输入一：已有记忆档案】')
@@ -97,7 +98,7 @@ class MemoryGenerationService {
       ..writeln()
       ..writeln('▍一、概况 summaries —— 最重要，必须极其完善')
       ..writeln('概况是这份档案的「当前最新综合版」，共四份，覆盖全部已知信息：')
-      ..writeln('- user：你（用户）的完整画像')
+      ..writeln('- user：我（使用本 App 的人）的完整画像')
       ..writeln('- partner：TA 的完整画像')
       ..writeln('- relationship：这段关系的完整状态')
       ..writeln('- growth：从第一次记录到现在的完整成长档案')
@@ -112,9 +113,11 @@ class MemoryGenerationService {
       ..writeln('动态类（双方画像、关系状态、成长轨迹）——要「对照旧档案」：')
       ..writeln('如果本次卡片来自同一对话的不同模式，请综合它们生成更客观的统一条目，不要按模式分别输出三份记忆。')
       ..writeln('先读旧档案中同板块的旧条目，再看本轮卡片，判断关系：')
+      ..writeln('- 旧档案里没有相关旧条目（第一次记录）→ 写新条目，以「新观察：…」开头。')
       ..writeln('- 卡片观察与旧条目描述「一致」（同一模式再次出现）→ 写新条目，以「仍在：…」开头。')
       ..writeln('- 卡片观察与旧条目描述「不一致 / 有新发现」→ 写新条目，以「变化：…」开头，写清从什么变成了什么。')
-      ..writeln('  示例：旧条目「TA 冲突时倾向沉默」；卡片说「TA 又沉默」→「仍在：TA 冲突时倾向沉默」；卡片说「TA 主动开口表达」→「变化：TA 从沉默变为主动表达」。')
+      ..writeln('  示例：旧条目「TA 冲突时倾向沉默」；卡片说「TA 又沉默」→「仍在：TA 冲突时倾向沉默」；卡片说「TA 主动开口表达」→「变化：TA 从沉默变为主动表达」；旧档案没有这条 →「新观察：TA 冲突时会先沉默再开口」。')
+      ..writeln('  注意：条目正文一律纯文本，禁止用星号（**）、反引号等任何 markdown 标记；「仍在/变化/新观察」只用「标签：正文」这一种格式。')
       ..writeln('静态类（矛盾触发点、有效沟通方式库、关系里程碑、雷区清单、未解决的问题、承诺跟踪）——只增量，但要先去重：')
       ..writeln('本轮卡片里能观察到、且旧档案没有实质重复的内容，直接写成新条目；同一对话或同一事实在多个模式卡片中重复出现时，只输出一条，合并 cardRef；若已存在等价条目，不再重复追加。')
       ..writeln('动态类也要去重：同一对话、同一事实的多张卡片合并为一条，多个来源用逗号分隔。旧条目一律保留，只追加有新信息的条目，不覆盖。')
@@ -128,10 +131,11 @@ class MemoryGenerationService {
       ..writeln('【铁律】')
       ..writeln('1. 只写卡片里能看到的事实，不编造。')
       ..writeln('1a. 「事实」「观察」「推断」分层：仅事实或多次一致观察可写入稳定档案；单次且不确定的判断写入时必须保留「可能 / 尚无法确认」等限定。')
-      ..writeln('2. 用「双方 / 你 / TA」，禁止性别与角色标签。')
+      ..writeln('2. 用「双方 / 我 / TA」，禁止「你、他、她、A、B、男方、女方、对方」等任何其他称呼与性别标签；两人的信息绝不能互换。')
       ..writeln('3. 条目一句话一条，只写具体观察，不写情绪化评价。')
-      ..writeln('4. 同一对话只显示一次出处日期和时间；不要输出「等几处」或重复来源提示。多个 cardRef 只用于内部精确回溯，不改变界面展示。')
-      ..writeln('5. 没有新条目时 entries 输出空数组；概况任何时候都要输出完整版。')
+      ..writeln('4. 概况与条目一律纯文本：禁止星号（**）、反引号、井号等任何 markdown 标记。')
+      ..writeln('5. 同一对话只显示一次出处日期和时间；不要输出「等几处」或重复来源提示。多个 cardRef 只用于内部精确回溯，不改变界面展示。')
+      ..writeln('6. 没有新条目时 entries 输出空数组；概况任何时候都要输出完整版。')
       ..writeln()
       ..writeln('【输出 JSON】')
       ..writeln('{ "entries": [')
@@ -151,12 +155,8 @@ class MemoryGenerationService {
     required List<GenerationCard> cards,
   }) {
     final text = _normalizeJson(_stripFences(response.trim()));
-    final dynamic decoded;
-    try {
-      decoded = jsonDecode(text);
-    } catch (_) {
-      throw const FormatException('记忆生成响应不是有效 JSON，可能被截断。');
-    }
+    final dynamic decoded = _decodeResponseJson(text) ??
+        (throw const FormatException('记忆生成响应不是有效 JSON，可能被截断。'));
     if (decoded is! Map<String, dynamic>) {
       throw const FormatException('记忆生成响应不是 JSON 对象');
     }
@@ -251,7 +251,7 @@ class MemoryGenerationService {
       lines.add(text);
     }
 
-    section('你（用户）的画像', memory.userSummary);
+    section('我的画像（使用本 App 的人）', memory.userSummary);
     section('TA 的画像', memory.partnerSummary);
     section('关系状态', memory.relationshipSummary);
     section('成长档案', memory.growthSummary);
@@ -317,6 +317,34 @@ class MemoryGenerationService {
   /// 容错：AI 偶尔会把 JSON 的英文大括号打成中文全角 ｛｝，先归一化再解析。
   String _normalizeJson(String text) {
     return text.replaceAll('｛', '{').replaceAll('｝', '}');
+  }
+
+  /// 尝试把响应文本解析成 JSON：先整体解析；失败时截取首尾大括号之间的
+  /// 内容（AI 偶尔在 JSON 前后夹带说明文字）再试一次。仍失败返回 null。
+  dynamic _decodeResponseJson(String text) {
+    try {
+      return jsonDecode(text);
+    } catch (_) {
+      // 容错：AI 偶尔在 JSON 前后夹带说明文字；截取首尾大括号之间的内容
+      // 再试一次。若确实是输出被截断（JSON 不完整），返回 null 由上层按
+      // 「可能被截断」处理。
+      final salvaged = _extractJsonSubstring(text);
+      if (salvaged == null) return null;
+      try {
+        return jsonDecode(salvaged);
+      } catch (_) {
+        return null;
+      }
+    }
+  }
+
+  /// 从响应文本里截取第一个 `{` 到最后一个 `}` 之间的内容（去掉 JSON 前后
+  /// 夹带的说明文字）；截取不到或区间非法时返回 null。
+  String? _extractJsonSubstring(String text) {
+    final start = text.indexOf('{');
+    final end = text.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    return text.substring(start, end + 1);
   }
 }
 
