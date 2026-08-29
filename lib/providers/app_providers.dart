@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../models/models.dart';
 import '../repositories/app_repository.dart';
@@ -11,12 +14,20 @@ import '../services/ai_client.dart';
 import '../services/analysis_service.dart';
 import '../services/memory_generation_service.dart';
 import '../services/prompt_service.dart';
+import '../utils/image_compress.dart';
 
 /// MiMo-V2.5 对单张 Base64 图片的官方限制。
 ///
 /// 官方限制针对单张图片的 Base64 字符串，不是图片张数；因此不再设置
 /// 人为的 9/10 张上限。多张图片是否能一次发送，还取决于请求体和模型上下文限制。
 const int kMaxBase64ImageBytes = 50 * 1024 * 1024;
+
+/// 单次分析请求的总 Base64 体积预算（低于官方 ~50 MB 上限留余量）。
+///
+/// 多张图片的总和可能远超单张限制，服务端会在请求体过大时直接断开连接
+/// （表现为「Connection closed / 已自动重试仍失败」）；超预算时对图片
+/// 自动降质重压缩到预算内再发送，无需用户手动重传。
+const int kApiTotalBase64Budget = 45 * 1024 * 1024;
 
 // 当前使用 drift 持久化仓库；MemoryAppRepository 保留为测试/参考。
 // 如需切回内存仓库（调试用），改用 MemoryAppRepository()。
@@ -119,6 +130,10 @@ final thinkingContentProvider = StateProvider.family<String, String>((ref, key) 
 final thinkingStartedAtProvider =
     StateProvider.family<DateTime?, String>((ref, key) => null);
 
+/// 思考完成时刻（固定冻结计时用；未完成时为 null）。
+final thinkingFinishedAtProvider =
+    StateProvider.family<DateTime?, String>((ref, key) => null);
+
 final thinkingExpandedProvider =
     StateProvider.family<bool, String>((ref, key) => false);
 
@@ -182,6 +197,12 @@ class AppRepositoryActions {
   Future<Case> renameConversation(String conversationId, String title) =>
       repository.renameCase(conversationId, title);
 
+  /// 修改对话的开始时间（右上角日期时间可点选修改）。
+  Future<Case> updateConversationStartedAt(
+    String conversationId,
+    DateTime createdAt,
+  ) => repository.updateCaseCreatedAt(conversationId, createdAt);
+
   /// 保存 BYOK 接入配置。
   Future<void> saveAiConfig(AiConfig config) => repository.saveAiConfig(config);
 
@@ -224,6 +245,7 @@ class AppRepositoryActions {
     ThinkingStatus? status,
     String? content,
     DateTime? startedAt,
+    DateTime? finishedAt,
     bool? expanded,
   }) {
     final key = _stateKey(conversationId, view);
@@ -235,6 +257,9 @@ class AppRepositoryActions {
     }
     if (startedAt != null || status == ThinkingStatus.idle) {
       ref.read(thinkingStartedAtProvider(key).notifier).state = startedAt;
+    }
+    if (finishedAt != null || status == ThinkingStatus.idle) {
+      ref.read(thinkingFinishedAtProvider(key).notifier).state = finishedAt;
     }
     if (expanded != null) {
       ref.read(thinkingExpandedProvider(key).notifier).state = expanded;
@@ -295,6 +320,7 @@ class AppRepositoryActions {
             : ThinkingStatus.done,
         content: battleState.thinkingContent ?? '',
         startedAt: battleState.thinkingStartedAt,
+        finishedAt: battleState.thinkingFinishedAt,
         expanded: battleState.thinkingActive,
       );
     } else {
@@ -358,9 +384,14 @@ class AppRepositoryActions {
       status: ThinkingStatus.thinking,
       content: '',
       startedAt: thinkingStartTime,
+      finishedAt: null,
       expanded: true,
     );
-    unawaited(repository.saveThinkingState(
+    // 后台节流写入失败不阻塞分析主流程，只吞掉错误避免未处理异步异常。
+    void safePersist(Future<void> future) =>
+        unawaited(future.catchError((_) {}));
+
+    safePersist(repository.saveThinkingState(
       conversationId: conversationId,
       view: view,
       thinkingContent: '',
@@ -373,10 +404,21 @@ class AppRepositoryActions {
     _activeAnalysisKeys['$conversationId:${view.name}'] = viewKey;
     _activeViewKey = '$conversationId:${view.name}';
 
+    // 同 Key / 同账号并发多个分析时，模型服务端对流式连接通常有并发上限；
+    // 明示「已有分析在跑、本轮回排队」，避免用户误以为卡死。仅提示不阻止。
+    final concurrentActive = _activeAnalysisKeys.length - 1;
+    if (concurrentActive > 0) {
+      ref.read(debugStatusProvider.notifier).state =
+          '另有 $concurrentActive 个分析正在进行，本轮流式输出可能排队'
+          '（模型对流式连接并发有限）…';
+    }
+
     // 思考过程持久化节流：每 3 秒写一次 DB，避免高频写入。
     var lastPersistAt = DateTime.now();
     const persistInterval = Duration(seconds: 3);
     var skippedImages = 0;
+    // 超大图自动降质重压缩的临时目录（本次分析结束后清理）。
+    Directory? apiCacheDir;
 
     try {
       final memory = await repository.watchMemory().first;
@@ -395,19 +437,71 @@ class AppRepositoryActions {
         final size = await file.length();
         imageFiles.add((image: MessageImage(message.assetPath!), sizeBytes: size));
       }
-      final images = [for (final entry in imageFiles) entry.image];
       // Base64 体积 = ceil(原始字节 / 3) * 4，用于估算请求体大小。
-      final payloadBytes = imageFiles.fold<int>(
+      var effectivePayloadBytes = imageFiles.fold<int>(
         0,
         (sum, entry) => sum + (entry.sizeBytes + 2) ~/ 3 * 4,
       );
-      final payloadMb = (payloadBytes / (1024 * 1024)).toStringAsFixed(1);
+      // 总图量超出预算：请求体过大会被服务端直接断开（"Connection closed…
+      // 已自动重试仍失败"）。按体积从大到小自动降质重压缩到预算内，
+      // 写临时文件参与本次请求，无需用户手动重传。
+      var recompressed = 0;
+      if (effectivePayloadBytes > kApiTotalBase64Budget &&
+          imageFiles.isNotEmpty) {
+        final tempBase = await getTemporaryDirectory();
+        apiCacheDir = await tempBase.createTemp('sowhat_api_');
+        const tiers = [
+          (maxDimension: 0, quality: 80),
+          (maxDimension: 1600, quality: 72),
+          (maxDimension: 1280, quality: 60),
+          (maxDimension: 1024, quality: 50),
+        ];
+        final order = List.generate(imageFiles.length, (i) => i)
+          ..sort(
+            (a, b) =>
+                imageFiles[b].sizeBytes.compareTo(imageFiles[a].sizeBytes),
+          );
+        for (final tier in tiers) {
+          if (effectivePayloadBytes <= kApiTotalBase64Budget) break;
+          for (final idx in order) {
+            if (effectivePayloadBytes <= kApiTotalBase64Budget) break;
+            final entry = imageFiles[idx];
+            final bytes = await File(entry.image.path).readAsBytes();
+            final reduced = await compute(
+              reencodeJpegCompat,
+              (
+                bytes: bytes,
+                quality: tier.quality,
+                maxDimension: tier.maxDimension,
+              ),
+            );
+            if (reduced == null) continue;
+            final newBase64 = (reduced.length + 2) ~/ 3 * 4;
+            if (newBase64 >= entry.sizeBytes) continue;
+            await File(p.join(apiCacheDir.path, 'img_$idx.jpg'))
+                .writeAsBytes(reduced, flush: true);
+            effectivePayloadBytes =
+                effectivePayloadBytes - entry.sizeBytes + newBase64;
+            imageFiles[idx] = (
+              image: MessageImage(
+                p.join(apiCacheDir.path, 'img_$idx.jpg'),
+              ),
+              sizeBytes: newBase64,
+            );
+            recompressed++;
+          }
+        }
+      }
+      final images = [for (final entry in imageFiles) entry.image];
+      final payloadMb = (effectivePayloadBytes / (1024 * 1024))
+          .toStringAsFixed(1);
       if (skippedImages > 0) {
         ref.read(debugStatusProvider.notifier).state =
             '已跳过 $skippedImages 张失效图片';
       }
-      ref.read(debugStatusProvider.notifier).state =
-          '已准备 ${images.length} 张图片（Base64 约 $payloadMb MB）参与本轮分析';
+      ref.read(debugStatusProvider.notifier).state = recompressed > 0
+          ? '图量过大，已自动降质重压缩 $recompressed 张后发送（Base64 约 $payloadMb MB）'
+          : '已准备 ${images.length} 张图片（Base64 约 $payloadMb MB）参与本轮分析';
 
       final analysisService = ref.read(analysisServiceProvider);
 
@@ -429,17 +523,17 @@ class AppRepositoryActions {
         onThinking: (content) {
           if (!cancelCompleter.isCompleted) {
             ref.read(thinkingContentProvider(stateKey).notifier).state = content;
-            // 定期持久化思考过程到 DB。
+            // 定期持久化思考过程到 DB（节流 3s，失败不阻塞分析）。
             final now = DateTime.now();
             if (now.difference(lastPersistAt) >= persistInterval) {
               lastPersistAt = now;
-              repository.saveThinkingState(
+              safePersist(repository.saveThinkingState(
                 conversationId: conversationId,
                 view: view,
                 thinkingContent: content,
                 thinkingStartedAt: thinkingStartTime,
                 thinkingActive: true,
-              );
+              ));
             }
           }
         },
@@ -493,6 +587,7 @@ class AppRepositoryActions {
         conversationId,
         view,
         status: ThinkingStatus.done,
+        finishedAt: DateTime.now(),
         expanded: false,
       );
       ref.read(isAnalyzingProvider(stateKey).notifier).state = false;
@@ -500,7 +595,7 @@ class AppRepositoryActions {
       if (!cancelCompleter.isCompleted) {
         // 分析失败：仍保存思考过程，方便用户回看排查。
         final finalThinkingContent = ref.read(thinkingContentProvider(stateKey));
-        repository.saveThinkingState(
+        await repository.saveThinkingState(
           conversationId: conversationId,
           view: view,
           thinkingContent: finalThinkingContent.isNotEmpty ? finalThinkingContent : null,
@@ -512,6 +607,7 @@ class AppRepositoryActions {
           conversationId,
           view,
           status: ThinkingStatus.done,
+          finishedAt: DateTime.now(),
           expanded: false,
         );
         ref.read(isAnalyzingProvider(stateKey).notifier).state = false;
@@ -525,6 +621,14 @@ class AppRepositoryActions {
         _activeAnalysisKeys.remove('$conversationId:${view.name}');
       }
       ref.read(isAnalyzingProvider(stateKey).notifier).state = false;
+      // 清理超大图降质重压缩的临时文件。
+      final cacheDir = apiCacheDir;
+      if (cacheDir != null) {
+        apiCacheDir = null;
+        unawaited(
+          cacheDir.delete(recursive: true).catchError((_) => cacheDir),
+        );
+      }
     }
     return skippedImages;
   }
@@ -533,11 +637,11 @@ class AppRepositoryActions {
     final summary = cards.isNotEmpty ? '分析了 ${cards.length} 个维度' : '暂无分析结果';
     switch (view) {
       case BattleView.love:
-        return '争爱视角 — $summary';
+        return '为爱视角 — $summary';
       case BattleView.right:
-        return '争对错视角 — $summary';
+        return '论对错视角 — $summary';
       case BattleView.win:
-        return '争输赢视角 — $summary';
+        return '比输赢视角 — $summary';
     }
   }
 }

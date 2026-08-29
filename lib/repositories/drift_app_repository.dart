@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:uuid/uuid.dart';
 
 import '../data/app_database.dart';
 import '../data/converters.dart' as cv;
@@ -777,6 +778,18 @@ class DriftAppRepository implements AppRepository {
   }
 
   @override
+  Future<Case> updateCaseCreatedAt(String caseId, DateTime createdAt) async {
+    await _ensureReady();
+    await _db.customStatement('UPDATE cases SET created_at = ? WHERE id = ?', [
+      createdAt.millisecondsSinceEpoch,
+      caseId,
+    ]);
+    final cases = await _loadCases();
+    _emitCases(cases);
+    return cases.firstWhere((c) => c.id == caseId);
+  }
+
+  @override
   Future<void> deleteMemoryForConversation(String conversationId) async {
     await _ensureReady();
     final erows = await _db.customSelect('SELECT * FROM memory_entries').get();
@@ -910,8 +923,197 @@ class DriftAppRepository implements AppRepository {
   }
 
   @override
+  Future<void> importCaseData({
+    required Case caseItem,
+    required List<Message> messages,
+    required List<Analysis> analyses,
+  }) async {
+    await _ensureReady();
+    // 整段导入单事务：任一步失败（如某个 JSON 字段非法）整体回滚，
+    // 不会出现「对话导入了、分析/图片半套」的脏状态。
+    await _db.transaction(() async {
+      final cRow = cv.caseToRow(caseItem);
+      await _db.customStatement(
+        'INSERT OR REPLACE INTO cases (id, title, created_at, pinned_at, background, memory_finalized_at, is_imported, last_view) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [
+          cRow['id'] as String,
+          cRow['title'] as String?,
+          cRow['created_at'] as int,
+          cRow['pinned_at'] as int?,
+          cRow['background'] as String?,
+          cRow['memory_finalized_at'] as int?,
+          cRow['is_imported'] as int,
+          cRow['last_view'] as int,
+        ],
+      );
+
+      for (final message in messages) {
+        final mRow = cv.messageToRow(message);
+        await _db.customStatement(
+          'INSERT OR REPLACE INTO messages (id, conversation_id, sequence, created_at, party, type, content, asset_path) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            mRow['id'] as String,
+            mRow['conversation_id'] as String,
+            mRow['sequence'] as int,
+            mRow['created_at'] as int,
+            mRow['party'] as int,
+            mRow['type'] as int,
+            mRow['content'] as String,
+            mRow['asset_path'] as String?,
+          ],
+        );
+        final path = message.assetPath;
+        if (path != null && path.isNotEmpty) {
+          final file = File(path);
+          if (await file.exists()) {
+            await _db.customStatement(
+              'INSERT OR REPLACE INTO assets (id, path, title, created_at, size_bytes, mime_type) VALUES (?, ?, ?, ?, ?, ?)',
+              [
+                const Uuid().v4(),
+                path,
+                null,
+                message.createdAt.millisecondsSinceEpoch,
+                await file.length(),
+                _mimeTypeForPath(path),
+              ],
+            );
+          }
+        }
+      }
+
+      for (final analysis in analyses) {
+        final aRow = cv.analysisToRow(analysis);
+        await _db.customStatement(
+          'INSERT OR REPLACE INTO analyses (id, conversation_id, view, channel, model_name, content, cards_json, created_at, token_count, duration_micros, turn_id, memory_processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            aRow['id'] as String,
+            aRow['conversation_id'] as String,
+            aRow['view'] as int,
+            aRow['channel'] as int,
+            aRow['model_name'] as String?,
+            aRow['content'] as String,
+            aRow['cards_json'] as String,
+            aRow['created_at'] as int,
+            aRow['token_count'] as int,
+            aRow['duration_micros'] as int?,
+            aRow['turn_id'] as String? ?? '',
+            aRow['memory_processed_at'] as int?,
+          ],
+        );
+        // 恢复战场状态：该视角还没有状态时用导入的分析卡片重建，
+        // 否则导入后切到该视角是空白（直到重新分析）。
+        final hasState = await _db
+            .customSelect(
+              'SELECT 1 FROM battle_states WHERE conversation_id = ? AND view = ? LIMIT 1',
+              variables: [
+                Variable<String>(caseItem.id),
+                Variable<int>(analysis.view.index),
+              ],
+            )
+            .get();
+        if (hasState.isNotEmpty) continue;
+        final cards = analysis.cards
+            .map(
+              (c) => BattleCard(
+                title: c.title,
+                conclusion: c.conclusion,
+                evidence: c.evidence ?? '',
+                speculation: c.speculation,
+              ),
+            )
+            .toList();
+        final state = BattleState(
+          view: analysis.view,
+          userScore: 50,
+          partnerScore: 50,
+          userHp: 1,
+          partnerHp: 1,
+          userLove: 0.5,
+          partnerLove: 0.5,
+          justiceBalance: 0,
+          headline: _headlineFor(analysis.view),
+          cards: cards,
+          updatedAt: analysis.createdAt,
+        );
+        final sRow = cv.battleStateToRow(caseItem.id, state);
+        await _db.customStatement(
+          'INSERT OR REPLACE INTO battle_states '
+          '(conversation_id, view, user_score, partner_score, user_hp, partner_hp, '
+          'user_love, partner_love, justice_balance, headline, cards_json, updated_at, '
+          'thinking_content, thinking_started_at, thinking_finished_at, thinking_active) '
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [
+            sRow['conversation_id'] as String,
+            sRow['view'] as int,
+            sRow['user_score'] as double,
+            sRow['partner_score'] as double,
+            sRow['user_hp'] as double,
+            sRow['partner_hp'] as double,
+            sRow['user_love'] as double,
+            sRow['partner_love'] as double,
+            sRow['justice_balance'] as double,
+            sRow['headline'] as String,
+            sRow['cards_json'] as String,
+            sRow['updated_at'] as int,
+            sRow['thinking_content'] as String?,
+            sRow['thinking_started_at'] as int?,
+            sRow['thinking_finished_at'] as int?,
+            sRow['thinking_active'] as int,
+          ],
+        );
+      }
+    });
+
+    _emitCases(await _loadCases());
+    _emitMessages(caseItem.id, await _loadMessages(caseItem.id));
+    _emitAnalyses(caseItem.id, await _loadAnalyses(caseItem.id));
+    for (final view in BattleView.values) {
+      _emitBattle(caseItem.id, await _loadBattle(caseItem.id, view));
+    }
+    _emitAssets();
+  }
+
+  @override
   Future<void> saveMemory(MemoryProfile memory) async {
     await _ensureReady();
+    await _db.transaction(() => _writeMemoryRows(memory));
+    _emitMemory(await _loadMemory());
+  }
+
+  @override
+  Future<void> saveMemoryWithProcessing({
+    required MemoryProfile memory,
+    required List<String> analysisIds,
+    required List<String> conversationIds,
+  }) async {
+    await _ensureReady();
+    // 档案写入、卡片标记、对话锁定必须同一事务：任一步失败整体回滚，
+    // 杜绝「卡片已消化但记忆没写进去」这类半成功状态。
+    await _db.transaction(() async {
+      await _writeMemoryRows(memory);
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (final id in analysisIds) {
+        await _db.customStatement(
+          'UPDATE analyses SET memory_processed_at = ? WHERE id = ? AND memory_processed_at IS NULL',
+          [now, id],
+        );
+      }
+      for (final convId in conversationIds) {
+        await _db.customStatement(
+          'UPDATE cases SET memory_finalized_at = ? WHERE id = ? AND memory_finalized_at IS NULL',
+          [now, convId],
+        );
+      }
+    });
+    _emitMemory(await _loadMemory());
+    _emitCases(await _loadCases());
+    for (final convId in _analysisControllers.keys.toList()) {
+      _emitAnalyses(convId, await _loadAnalyses(convId));
+    }
+  }
+
+  /// 档案行写入（memory_profiles + memory_entries 全量替换），供事务内调用。
+  Future<void> _writeMemoryRows(MemoryProfile memory) async {
     final row = cv.memoryProfileToRow(memory);
     await _db.customStatement(
       'INSERT OR REPLACE INTO memory_profiles (id, user_summary, partner_summary, relationship_summary, growth_summary, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
@@ -941,7 +1143,6 @@ class DriftAppRepository implements AppRepository {
         ],
       );
     }
-    _emitMemory(await _loadMemory());
   }
 
   @override
@@ -1009,6 +1210,71 @@ class DriftAppRepository implements AppRepository {
       }
     }
 
+    _emitCases(await _loadCases());
+    _emitMemory(await _loadMemory());
+    _emitAssets();
+    for (final controller in _messageControllers.values.toList()) {
+      controller.add(const []);
+    }
+    for (final controller in _analysisControllers.values.toList()) {
+      controller.add(const []);
+    }
+    for (final entry in _battleControllers.entries.toList()) {
+      _emitBattle(
+        entry.key.conversationId,
+        await _loadBattle(entry.key.conversationId, entry.key.view),
+      );
+    }
+  }
+
+  @override
+  Future<void> clearUserData({
+    bool conversations = false,
+    bool analyses = false,
+    bool memory = false,
+    bool assets = false,
+  }) async {
+    await _ensureReady();
+    // 勾选对话时级联删除（与删单个对话一致：连同其消息/分析/战场/记忆引用）。
+    if (conversations) {
+      final rows = await _db.customSelect('SELECT id FROM cases').get();
+      for (final row in rows) {
+        await deleteCase(row.data['id'] as String);
+      }
+    }
+    if (analyses) {
+      await _db.customStatement('DELETE FROM analyses');
+      await _db.customStatement('DELETE FROM battle_states');
+    }
+    if (memory) {
+      await _db.customStatement('DELETE FROM memory_entries');
+      await _db.customStatement('DELETE FROM memory_profiles');
+    }
+    if (assets) {
+      // 先收集资产路径，删库后只删「不再被任何消息引用」的文件，
+      // 保留仍在使用中的对话图片。
+      final assetRows = await _db.customSelect('SELECT path FROM assets').get();
+      await _db.customStatement('DELETE FROM assets');
+      final refs = <String>{};
+      for (final row in await _db
+          .customSelect('SELECT asset_path FROM messages WHERE asset_path IS NOT NULL')
+          .get()) {
+        final path = row.data['asset_path'];
+        if (path is String && path.isNotEmpty) refs.add(path);
+      }
+      for (final row in assetRows) {
+        final path = row.data['path'];
+        if (path is! String || path.isEmpty || refs.contains(path)) continue;
+        try {
+          final file = File(path);
+          if (await file.exists()) await file.delete();
+        } catch (_) {
+          // 文件清理失败不阻塞清除。
+        }
+      }
+    }
+
+    // 全量重发，保证界面同步。
     _emitCases(await _loadCases());
     _emitMemory(await _loadMemory());
     _emitAssets();
@@ -1139,41 +1405,54 @@ class DriftAppRepository implements AppRepository {
     bool thinkingActive = false,
   }) async {
     await _ensureReady();
-    final rows = await _db
-        .customSelect(
-          'SELECT * FROM battle_states WHERE conversation_id = ? AND view = ?',
-          variables: [
-            Variable<String>(conversationId),
-            Variable<int>(view.index),
-          ],
-        )
-        .get();
-    if (rows.isEmpty) return;
-    final existing = cv.rowToBattleState(rows.first.data);
-    final updated = existing.copyWith(
-      thinkingContent: thinkingContent,
-      thinkingStartedAt: thinkingStartedAt,
-      thinkingFinishedAt: thinkingFinishedAt,
-      thinkingActive: thinkingActive,
-      updatedAt: DateTime.now(),
-    );
-    final row = cv.battleStateToRow(conversationId, updated);
-    await _db.customStatement(
-      'UPDATE battle_states SET '
-      'thinking_content = ?, thinking_started_at = ?, '
-      'thinking_finished_at = ?, thinking_active = ?, updated_at = ? '
-      'WHERE conversation_id = ? AND view = ?',
-      [
-        row['thinking_content'] as String?,
-        row['thinking_started_at'] as int?,
-        row['thinking_finished_at'] as int?,
-        row['thinking_active'] as int,
-        row['updated_at'] as int,
-        conversationId,
-        view.index,
-      ],
-    );
-    _emitBattle(conversationId, updated);
+    // 读改写放进同一事务：节流写入与最终写入可能并发（unawaited 后台写），
+    // 事务由 drift 串行化，配合下方的单调性保护，杜绝「旧思考覆盖终态」。
+    await _db.transaction(() async {
+      final rows = await _db
+          .customSelect(
+            'SELECT * FROM battle_states WHERE conversation_id = ? AND view = ?',
+            variables: [
+              Variable<String>(conversationId),
+              Variable<int>(view.index),
+            ],
+          )
+          .get();
+      if (rows.isEmpty) return;
+      final existing = cv.rowToBattleState(rows.first.data);
+      // 单调性保护：
+      // 1) 已落终态（thinking_active = 0）时，忽略迟到的「进行中」写入；
+      // 2) 思考是追加流，内容只增不减——入参比已存内容短视为迟到写入。
+      final stale =
+          (!existing.thinkingActive && thinkingActive) ||
+          (thinkingContent != null &&
+              existing.thinkingContent != null &&
+              thinkingContent.length < existing.thinkingContent!.length);
+      if (stale) return;
+      final updated = existing.copyWith(
+        thinkingContent: thinkingContent,
+        thinkingStartedAt: thinkingStartedAt,
+        thinkingFinishedAt: thinkingFinishedAt,
+        thinkingActive: thinkingActive,
+        updatedAt: DateTime.now(),
+      );
+      final row = cv.battleStateToRow(conversationId, updated);
+      await _db.customStatement(
+        'UPDATE battle_states SET '
+        'thinking_content = ?, thinking_started_at = ?, '
+        'thinking_finished_at = ?, thinking_active = ?, updated_at = ? '
+        'WHERE conversation_id = ? AND view = ?',
+        [
+          row['thinking_content'] as String?,
+          row['thinking_started_at'] as int?,
+          row['thinking_finished_at'] as int?,
+          row['thinking_active'] as int,
+          row['updated_at'] as int,
+          conversationId,
+          view.index,
+        ],
+      );
+      _emitBattle(conversationId, updated);
+    });
   }
 
   String _headlineFor(BattleView view) {

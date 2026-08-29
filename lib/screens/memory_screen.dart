@@ -48,6 +48,7 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
   String _memoryContent = '';
   bool _memoryExpanded = false;
   DateTime? _memoryStartedAt;
+  DateTime? _memoryFinishedAt;
   bool _memoryGenerating = false;
 
   /// 底部「快捷滑动条」是否展开（展示除当前外其他板块的小标题）。
@@ -157,7 +158,11 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
         body: Stack(
           children: [
             Positioned.fill(
-              child: ListView(
+              // 用 SingleChildScrollView 而非 ListView：ListView 会懒加载卸载
+              // 可视区外的子项，KeepAlive 只保证「已挂载过的」孩子不被回收，
+              // 从未挂载的远距离板块标题根本拿不到 context，跳转会静默失效。
+              // 整树常驻后所有锚点 key 都可用，远距离跳转稳定。
+              child: SingleChildScrollView(
                 controller: _scrollController,
                 // 顶部留白避开浮层标题，底部留白避开底部悬浮条与渐变遮罩。
                 padding: EdgeInsets.fromLTRB(
@@ -166,26 +171,25 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                   16,
                   _kMemoryListBottomInset,
                 ),
-                children: [
-                  if (_memoryStatus != ThinkingStatus.idle) ...[
-                    ThinkingPanel(
-                      mode: mode,
-                      status: _memoryStatus,
-                      content: _memoryContent,
-                      expanded: _memoryExpanded,
-                      startedAt: _memoryStartedAt,
-                      onToggle: () =>
-                          setState(() => _memoryExpanded = !_memoryExpanded),
-                    ),
-                    const SizedBox(height: 22),
-                  ],
-                  if (hasOverview || entries.isNotEmpty) ...[
-                    if (hasOverview)
-                      // KeepAlive：ListView 默认只挂载可视区附近的子项，
-                      // 滚远后概况卡的锚点会被卸载，跳转就会失效。
-                      KeepAlive(
-                        keepAlive: true,
-                        child: _OverviewSection(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (_memoryStatus != ThinkingStatus.idle) ...[
+                      ThinkingPanel(
+                        mode: mode,
+                        status: _memoryStatus,
+                        content: _memoryContent,
+                        expanded: _memoryExpanded,
+                        startedAt: _memoryStartedAt,
+                        finishedAt: _memoryFinishedAt,
+                        onToggle: () =>
+                            setState(() => _memoryExpanded = !_memoryExpanded),
+                      ),
+                      const SizedBox(height: 22),
+                    ],
+                    if (hasOverview || entries.isNotEmpty) ...[
+                      if (hasOverview)
+                        _OverviewSection(
                           mode: mode,
                           memory: memory,
                           headingKeys: {
@@ -197,15 +201,11 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                             'summary_growth': _sectionKey('summary_growth'),
                           },
                         ),
-                      ),
-                  ] else
-                    _MemoryEmptyState(mode: mode),
-                  const SizedBox(height: 22),
-                  for (final kind in boards) ...[
-                    // KeepAlive：让板块标题锚点常驻，滚远后仍能定位跳转。
-                    KeepAlive(
-                      keepAlive: true,
-                      child: KeyedSubtree(
+                    ] else
+                      _MemoryEmptyState(mode: mode),
+                    const SizedBox(height: 22),
+                    for (final kind in boards) ...[
+                      KeyedSubtree(
                         key: _sectionKey(kind.name),
                         child: _BoardHeader(
                           mode: mode,
@@ -213,23 +213,23 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                           count: grouped[kind]!.length,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 9),
-                    ...grouped[kind]!.map(
-                      (entry) => Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _MemoryEntryCard(
-                          mode: mode,
-                          entry: entry,
-                          existingIds: existingIds,
-                          onTap: () =>
-                              _openSource(context, ref, entry, existingIds),
+                      const SizedBox(height: 9),
+                      ...grouped[kind]!.map(
+                        (entry) => Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _MemoryEntryCard(
+                            mode: mode,
+                            entry: entry,
+                            existingIds: existingIds,
+                            onTap: () =>
+                                _openSource(context, ref, entry, existingIds),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 10),
+                      const SizedBox(height: 10),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
             // 顶部渐隐：内容滚动到浮层标题下方时过渡淡出。
@@ -395,25 +395,31 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
 
   /// 跳转到指定板块：手动计算目标偏移，让该板块标题停在距屏幕顶部约 18%
   /// 处（避开悬浮的返回栏），再收起展开列表。
+  ///
+  /// 锚点若尚未布局（如页面刚打开第一帧）会拿不到 RenderObject：
+  /// 先等一帧再跳，避免首跳静默失效。
   void _jumpToSection(String id) {
     setState(() => _navExpanded = false);
-    final ctx = _sectionKeys[id]?.currentContext;
-    if (ctx == null || !_scrollController.hasClients) return;
-    final box = ctx.findRenderObject();
-    if (box is! RenderBox) return;
-    final globalTop = box.localToGlobal(Offset.zero).dy;
-    final target =
-        globalTop + _scrollController.offset -
-        MediaQuery.sizeOf(context).height * 0.18;
-    final clamped = target.clamp(
-      0.0,
-      _scrollController.position.maxScrollExtent,
-    );
-    _scrollController.animateTo(
-      clamped,
-      duration: const Duration(milliseconds: 380),
-      curve: Curves.easeOutCubic,
-    );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final ctx = _sectionKeys[id]?.currentContext;
+      if (ctx == null) return;
+      final box = ctx.findRenderObject();
+      if (box is! RenderBox) return;
+      final globalTop = box.localToGlobal(Offset.zero).dy;
+      final target =
+          globalTop + _scrollController.offset -
+          MediaQuery.sizeOf(context).height * 0.18;
+      final clamped = target.clamp(
+        0.0,
+        _scrollController.position.maxScrollExtent,
+      );
+      _scrollController.animateTo(
+        clamped,
+        duration: const Duration(milliseconds: 380),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   /// 点「更新记忆」：把全部未消化分析卡片发给 AI（小米 MiMo），
@@ -487,6 +493,7 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
       _memoryContent = '';
       _memoryExpanded = true;
       _memoryStartedAt = startedAt;
+      _memoryFinishedAt = null;
     });
 
     // 思考过程与聊天页一致：流式增量需要累积拼接，否则思考框只会显示
@@ -499,6 +506,7 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
       setState(() {
         _memoryGenerating = false;
         _memoryStatus = ThinkingStatus.done;
+        _memoryFinishedAt = DateTime.now();
         _memoryExpanded = false;
       });
       _showMessageDialog(
@@ -528,6 +536,20 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
         },
       );
       final result = service.parseResponse(response: raw, cards: cards);
+      // 空结果保护：AI 返回合法 JSON 但没有提取到任何内容（entries 为空且
+      // 四份概况也全空）时，按失败处理——走重试/报错，绝不落库、绝不把
+      // 来源卡片标记为已消化，避免「写入成功但页面空白」的假成功。
+      final hasContent =
+          result.entries.isNotEmpty ||
+          (result.userSummary?.isNotEmpty ?? false) ||
+          (result.partnerSummary?.isNotEmpty ?? false) ||
+          (result.relationshipSummary?.isNotEmpty ?? false) ||
+          (result.growthSummary?.isNotEmpty ?? false);
+      if (!hasContent) {
+        throw const FormatException(
+          'AI 没有返回可用的记忆内容（JSON 结构或字段名可能不符）。请重试。',
+        );
+      }
       final updated = memory.copyWith(
         userSummary: result.userSummary ?? memory.userSummary,
         partnerSummary: result.partnerSummary ?? memory.partnerSummary,
@@ -536,17 +558,18 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
         growthSummary: result.growthSummary ?? memory.growthSummary,
         entries: [...memory.entries, ...result.entries],
       );
-      await repository.saveMemory(updated);
-      await repository.markAnalysesProcessed(
-        cards.map((c) => c.analysisId).toSet().toList(),
-      );
-      await repository.finalizeConversationsForMemory(
-        involvedConversationIds.toList(),
+      // 写档案 + 标记卡片已消化 + 锁定对话在仓库层同一事务内完成，
+      // 任一步失败整体回滚，不会出现半成功状态。
+      await repository.saveMemoryWithProcessing(
+        memory: updated,
+        analysisIds: cards.map((c) => c.analysisId).toSet().toList(),
+        conversationIds: involvedConversationIds.toList(),
       );
       if (!context.mounted) return;
       setState(() {
         _memoryGenerating = false;
         _memoryStatus = ThinkingStatus.done;
+        _memoryFinishedAt = DateTime.now();
         _memoryExpanded = false;
       });
       _showMessageDialog(
@@ -567,6 +590,7 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
       if (!context.mounted) return;
       setState(() {
         _memoryStatus = ThinkingStatus.thinking;
+        _memoryFinishedAt = null;
         _memoryExpanded = true;
       });
       try {
@@ -606,7 +630,7 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                   style: TextStyle(color: mode.cardBody, height: 1.5),
                 ),
                 const SizedBox(height: 14),
-                for (final caseItem in cases)
+                for (final caseItem in cases) ...[
                   Padding(
                     padding: const EdgeInsets.only(bottom: 8),
                     child: Row(
@@ -619,17 +643,15 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                         ),
                         const SizedBox(width: 7),
                         Expanded(
-                          child: Text(
-                            '${caseItem.displayTitle}  ·  ${formatDate(caseItem.createdAt)} ${formatTime(caseItem.createdAt)}',
-                            style: TextStyle(
-                              color: mode.cardBody,
-                              fontSize: 13,
-                            ),
+                          child: _ConversationLabelText(
+                            caseItem: caseItem,
+                            mode: mode,
                           ),
                         ),
                       ],
                     ),
                   ),
+                ],
               ],
             ),
           ),
@@ -935,7 +957,7 @@ class _UpdateMemoryButton extends StatelessWidget {
 /// 底部悬浮的「快捷滑动条」：按钮显示当前浏览到的板块小标题，与聊天页
 /// 当前模式按钮完全同款。点击按钮本体（即当前板块的名字）向上展开其他
 /// 板块的小标题；点选某个板块后平滑滚动到该位置并收起，按钮随之显示新
-/// 板块名。无展开动效。
+/// 板块名。展开动效与聊天页模式展开保持同款。
 class _SectionNavigator extends StatelessWidget {
   const _SectionNavigator({
     required this.mode,
@@ -955,29 +977,35 @@ class _SectionNavigator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: [
-        if (expanded) ...[
-          for (var i = 0; i < options.length; i++) ...[
-            if (i > 0) const SizedBox(height: 8),
-            _SectionOptionButton(
-              mode: mode,
-              label: options[i].label,
-              onTap: options[i].onTap,
-            ),
+    return AnimatedSize(
+      // 与聊天页模式展开动画保持同一款：向上展开、220ms 缓出。
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.bottomCenter,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          if (expanded) ...[
+            for (var i = 0; i < options.length; i++) ...[
+              if (i > 0) const SizedBox(height: 8),
+              _SectionOptionButton(
+                mode: mode,
+                label: options[i].label,
+                onTap: options[i].onTap,
+              ),
+            ],
+            const SizedBox(height: 12),
           ],
-          const SizedBox(height: 12),
+          PillButton(
+            mode: mode,
+            icon: Icons.unfold_more_rounded,
+            label: currentLabel,
+            highlight: true,
+            onTap: onToggle,
+          ),
         ],
-        PillButton(
-          mode: mode,
-          icon: Icons.unfold_more_rounded,
-          label: currentLabel,
-          highlight: true,
-          onTap: onToggle,
-        ),
-      ],
+      ),
     );
   }
 }
@@ -1192,6 +1220,26 @@ class _MemoryEntryCard extends StatelessWidget {
     final date = formatDate(source.happenedAt);
     final time = formatTime(source.happenedAt);
     return '出处：$date $time';
+  }
+}
+
+/// 对话标签：有自定义名称显示「名称 · 日期 时间」，未命名只显示「日期 时间」
+/// （命名不是必填，不再用「未命名对话」占位）。
+class _ConversationLabelText extends StatelessWidget {
+  const _ConversationLabelText({required this.caseItem, required this.mode});
+
+  final Case caseItem;
+  final ModeTheme mode;
+
+  @override
+  Widget build(BuildContext context) {
+    final title = caseItem.title?.trim() ?? '';
+    final dateTime =
+        '${formatDate(caseItem.createdAt)} ${formatTime(caseItem.createdAt)}';
+    return Text(
+      title.isEmpty ? dateTime : '$title  ·  $dateTime',
+      style: TextStyle(color: mode.cardBody, fontSize: 13),
+    );
   }
 }
 

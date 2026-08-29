@@ -91,11 +91,11 @@ class BattleState {
   String get modeTitle {
     switch (view) {
       case BattleView.love:
-        return '争爱';
+        return '为爱';
       case BattleView.right:
-        return '争对错';
+        return '论对错';
       case BattleView.win:
-        return '争输赢';
+        return '比输赢';
     }
   }
 }

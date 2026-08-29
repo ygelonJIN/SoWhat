@@ -208,6 +208,18 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
+  Future<Case> updateCaseCreatedAt(String caseId, DateTime createdAt) async {
+    final index = _cases.indexWhere((item) => item.id == caseId);
+    if (index < 0) {
+      throw StateError('未找到对话 $caseId');
+    }
+    final updated = _cases[index].copyWith(createdAt: createdAt);
+    _cases[index] = updated;
+    _emitCases();
+    return updated;
+  }
+
+  @override
   Future<void> deleteEmptyConversation(String conversationId) async {
     final messages =
         _messagesByConversation[conversationId] ?? const <Message>[];
@@ -272,8 +284,43 @@ class MemoryAppRepository implements AppRepository {
   }
 
   @override
+  Future<void> importCaseData({
+    required Case caseItem,
+    required List<Message> messages,
+    required List<Analysis> analyses,
+  }) async {
+    // 内存仓库为测试/参考实现：按顺序写入，语义与 Drift 事务版一致。
+    _cases.removeWhere((c) => c.id == caseItem.id);
+    _cases.add(caseItem);
+    _messagesByConversation[caseItem.id] = List.of(messages);
+    _analysesByConversation[caseItem.id] = List.of(analyses);
+    for (final analysis in analyses) {
+      _battleStates.putIfAbsent(
+        caseItem.id,
+        () => BattleState.initial(analysis.view),
+      );
+    }
+    _emitCases();
+    _emitMessages(caseItem.id);
+    _emitAnalyses(caseItem.id);
+  }
+
+  @override
   Future<void> saveMemory(MemoryProfile memory) async {
     _memory = memory;
+    _emitMemory();
+  }
+
+  @override
+  Future<void> saveMemoryWithProcessing({
+    required MemoryProfile memory,
+    required List<String> analysisIds,
+    required List<String> conversationIds,
+  }) async {
+    // 内存仓库为测试/参考实现：按顺序执行，语义与 Drift 事务版一致。
+    _memory = memory;
+    await markAnalysesProcessed(analysisIds);
+    await finalizeConversationsForMemory(conversationIds);
     _emitMemory();
   }
 
@@ -306,6 +353,39 @@ class MemoryAppRepository implements AppRepository {
     _emitMemory();
     if (!_assetController.isClosed) {
       _assetController.add(const []);
+    }
+  }
+
+  @override
+  Future<void> clearUserData({
+    bool conversations = false,
+    bool analyses = false,
+    bool memory = false,
+    bool assets = false,
+  }) async {
+    if (conversations) {
+      await wipeUserData();
+      return;
+    }
+    if (analyses) {
+      _analysesByConversation.clear();
+      _battleStates.clear();
+      for (final controller in _analysisControllers.values.toList()) {
+        controller.add(const []);
+      }
+      for (final controller in _battleControllers.values.toList()) {
+        controller.add(BattleState.initial(BattleView.love));
+      }
+    }
+    if (memory) {
+      _memory = MemoryProfile.empty();
+      _emitMemory();
+    }
+    if (assets) {
+      _assets.clear();
+      if (!_assetController.isClosed) {
+        _assetController.add(const []);
+      }
     }
   }
 

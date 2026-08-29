@@ -2,7 +2,13 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../models/models.dart';
+
+/// 后台 isolate 里对整张图片字节做 base64，避免大图编码的同步 CPU 阻塞主
+/// isolate（多模式并行分析时，主线程被编码占满会让各请求的启动互相排队）。
+String _encodeBase64(List<int> bytes) => base64Encode(bytes);
 
 /// 一张待发送的本地图片（截图 / 相册原图）。
 class MessageImage {
@@ -420,7 +426,7 @@ class AiClient {
       } catch (_) {
         continue;
       }
-      final data = base64Encode(bytes);
+      final data = await compute(_encodeBase64, bytes);
       final mediaType = _mediaType(image.path);
 
       if (protocol == AiProtocol.anthropic) {

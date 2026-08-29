@@ -47,7 +47,7 @@ class ModeTheme {
 
   final BattleView view;
 
-  /// 模式名：争爱 / 争对错 / 争输赢。
+  /// 模式名：为爱 / 论对错 / 比输赢。
   final String title;
 
   /// 战场视觉的名字：共育之树 / 法庭之秤 / 胜负之局。
@@ -65,7 +65,7 @@ class ModeTheme {
   final Color text;
   final Color textMuted;
 
-  /// 输入框圆角（争爱全圆、争对错直角、争输赢斜切）。
+  /// 输入框圆角（为爱全圆、论对错直角、比输赢切角）。
   final BorderRadius inputRadius;
 
   /// 卡片 / 气泡圆角。

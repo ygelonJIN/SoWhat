@@ -93,12 +93,17 @@ class FoldShape extends OutlinedBorder {
   @override
   void paint(Canvas canvas, Rect rect, {TextDirection? textDirection}) {
     if (side.width <= 0) return;
-    final path = _path(rect, textDirection);
+    // 描边向内偏移半宽：stroke 中心线若贴在边界上会被裁剪掉一半，
+    // 看起来像「描边变细/消失」（比输赢切角模式尤其明显）。
+    final inset = side.width / 2;
+    final path = _path(rect.deflate(inset), textDirection);
     canvas.drawPath(
       path,
       side.toPaint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = side.width,
+        ..strokeWidth = side.width
+        ..strokeJoin = StrokeJoin.round
+        ..strokeCap = StrokeCap.round,
     );
   }
 
@@ -224,14 +229,21 @@ class _FoldOutlinePainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     if (strokeColor.a <= 0) return;
-    final path = buildFoldPath(size, foldCutBy(size.height));
+    // 与 FoldShape 同款修正：描边整体向内偏移半宽，避免被 ClipPath 裁掉一半。
+    final inset = strokeWidth / 2;
+    if (size.width <= strokeWidth || size.height <= strokeWidth) return;
+    final path = buildFoldPath(
+      Size(size.width - strokeWidth, size.height - strokeWidth),
+      foldCutBy(size.height),
+    ).shift(Offset(inset, inset));
     canvas.drawPath(
       path,
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth
         ..color = strokeColor
-        ..strokeCap = StrokeCap.butt,
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
     );
   }
 

@@ -79,6 +79,7 @@ class _BattleCanvasState extends State<BattleCanvas> {
         final status = ref.watch(thinkingStatusProvider(thinkingKey));
         final content = ref.watch(thinkingContentProvider(thinkingKey));
         final startedAt = ref.watch(thinkingStartedAtProvider(thinkingKey));
+        final finishedAt = ref.watch(thinkingFinishedAtProvider(thinkingKey));
         final expanded = ref.watch(thinkingExpandedProvider(thinkingKey));
         final showThinking = status != ThinkingStatus.idle;
         return ListView(
@@ -94,6 +95,7 @@ class _BattleCanvasState extends State<BattleCanvas> {
                   content: content,
                   expanded: expanded,
                   startedAt: startedAt,
+                  finishedAt: finishedAt,
                   onToggle: () {
                     ref
                             .read(

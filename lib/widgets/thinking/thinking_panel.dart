@@ -23,6 +23,7 @@ class ThinkingPanel extends StatefulWidget {
     required this.content,
     required this.expanded,
     required this.startedAt,
+    required this.finishedAt,
     required this.onToggle,
   });
 
@@ -31,6 +32,10 @@ class ThinkingPanel extends StatefulWidget {
   final String content;
   final bool expanded;
   final DateTime? startedAt;
+
+  /// 思考完成时刻：完成态用它固定冻结计时（finishedAt - startedAt），
+  /// 避免完成之后重建/恢复时用「现在」重算导致计时继续走。
+  final DateTime? finishedAt;
   final VoidCallback onToggle;
 
   @override
@@ -59,7 +64,8 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
   void didUpdateWidget(covariant ThinkingPanel oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.status != widget.status ||
-        oldWidget.startedAt != widget.startedAt) {
+        oldWidget.startedAt != widget.startedAt ||
+        oldWidget.finishedAt != widget.finishedAt) {
       _maybeStartTicker();
     }
     if (oldWidget.content != widget.content) {
@@ -91,9 +97,10 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
         }
         setState(() => _elapsed = DateTime.now().difference(widget.startedAt!));
       });
-    } else if (widget.status == ThinkingStatus.done &&
-        widget.startedAt != null) {
-      final frozen = DateTime.now().difference(widget.startedAt!);
+    } else if (widget.status == ThinkingStatus.done) {
+      // 完成态固定冻结：优先用「完成时刻 - 开始时刻」，重建/恢复也不会再走表；
+      // 老数据没有完成时刻时才在切换那一刻用「现在」估算一次。
+      final frozen = _frozenElapsed();
       if (_elapsed != frozen) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) setState(() => _elapsed = frozen);
@@ -102,6 +109,17 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
     } else {
       _elapsed = Duration.zero;
     }
+  }
+
+  Duration _frozenElapsed() {
+    final start = widget.startedAt;
+    if (start == null) return Duration.zero;
+    final finish = widget.finishedAt;
+    if (finish != null) {
+      final d = finish.difference(start);
+      return d.isNegative ? Duration.zero : d;
+    }
+    return DateTime.now().difference(start);
   }
 
   void _jumpToBottomIfNeeded() {
@@ -158,13 +176,6 @@ class _ThinkingPanelState extends State<ThinkingPanel> {
       color: widget.mode.cardBackground,
       borderRadius: widget.mode.cardRadius,
       border: Border.all(color: widget.mode.cardBorder, width: 1),
-      boxShadow: [
-        BoxShadow(
-          color: Colors.black.withValues(alpha: widget.mode.cardShadowAlpha),
-          blurRadius: 18,
-          offset: const Offset(0, 8),
-        ),
-      ],
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

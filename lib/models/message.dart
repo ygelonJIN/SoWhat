@@ -25,6 +25,22 @@ class Message {
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now();
 
+  Message copyWith({
+    String? conversationId,
+    String? assetPath,
+  }) {
+    return Message(
+      id: id,
+      conversationId: conversationId ?? this.conversationId,
+      sequence: sequence,
+      createdAt: createdAt,
+      party: party,
+      type: type,
+      content: content,
+      assetPath: assetPath ?? this.assetPath,
+    );
+  }
+
   String get partyLabel => party == Party.a ? '我' : 'TA';
 
   bool get isImageType =>

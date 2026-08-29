@@ -23,6 +23,7 @@ import '../widgets/feedback/feedback.dart';
 import '../widgets/feedback/uploading_dialog.dart';
 import '../widgets/input/chat_composer.dart';
 import '../widgets/settings/settings_panel.dart';
+import '../widgets/settings/time_picker_sheet.dart';
 
 /// 读取图片文件头几个字节，识别真实格式并返回后缀（.jpg / .png / .webp）。
 ///
@@ -124,6 +125,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
   /// [ensureConversation] 完成后会自动重建。
   String get _conversationId => ref.read(selectedConversationIdProvider) ?? '';
 
+  /// 右上角日期时间胶囊的锚点，用于在它正下方展开时间下拉面板。
+  final GlobalKey _pickerAnchorKey = GlobalKey();
+
   @override
   void initState() {
     super.initState();
@@ -211,6 +215,111 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
     if (!_settingsOpen) return;
     FocusScope.of(context).unfocus();
     setState(() => _settingsOpen = false);
+  }
+
+  // ─── 右上角对话时间（点选修改，用于补录/回填历史对话） ─────────────────
+
+  Future<void> _editConversationTime() async {
+    final conversationId = _conversationId;
+    if (conversationId.isEmpty) return;
+    final mode = ModeThemes.of(ref.read(selectedBattleViewProvider));
+    final current =
+        ref
+            .read(conversationStartedAtProvider(conversationId))
+            .valueOrNull ??
+        DateTime.now();
+
+    // 在日期胶囊正下方往下展开内联下拉，而非弹窗；锚点缺失时也照常弹出。
+    Rect? anchor;
+    final anchorCtx = _pickerAnchorKey.currentContext;
+    if (anchorCtx != null && anchorCtx.mounted) {
+      final box = anchorCtx.findRenderObject();
+      if (box is RenderBox && box.hasSize) {
+        anchor = box.localToGlobal(Offset.zero) & box.size;
+      }
+    }
+
+    _collapseFan();
+    final updated = await _showInlineTimePicker(
+      mode: mode,
+      initial: current,
+      anchor: anchor,
+    );
+    if (updated == null) return;
+    try {
+      await ref
+          .read(repositoryActionsProvider)
+          .updateConversationStartedAt(conversationId, updated);
+      ref.read(debugStatusProvider.notifier).state =
+          '对话时间已更新为 ${formatDate(updated)} ${formatTime(updated)}';
+    } catch (_) {
+      if (mounted) _showError('修改对话时间失败，请重试。');
+    }
+  }
+
+  /// 在日期胶囊正下方展开的紧凑数字下拉：与胶囊同宽同风格、只出数字滚轮，
+  /// 向下展开（与选择模式同款动画）。点击胶囊以外的区域视为「失去焦点」=
+  /// 确定并收起，返回所选时间（无取消/确定按钮）。
+  Future<DateTime?> _showInlineTimePicker({
+    required ModeTheme mode,
+    required DateTime initial,
+    required Rect? anchor,
+  }) {
+    final overlayState = Overlay.of(context);
+    final completer = Completer<DateTime?>();
+    // 滚轮实时选中的值：点击外部时取它作为确定结果。
+    final currentValue = ValueNotifier<DateTime>(initial);
+
+    const wheelHeight = 172.0;
+    const estHeight = wheelHeight + 20.0;
+    final overlaySize =
+        (overlayState.context.findRenderObject() as RenderBox?)?.size ??
+        MediaQuery.sizeOf(context);
+
+    // 下拉比胶囊宽一些（横向不再拥挤），右沿仍对齐胶囊右沿；屏幕窄时贴边。
+    final width = (overlaySize.width - 24.0).clamp(220.0, 296.0);
+    final fallbackLeft = overlaySize.width - width - 8.0;
+    var left = anchor == null ? fallbackLeft : (anchor.right - width);
+    final maxLeft = overlaySize.width - width - 8.0;
+    left = left.clamp(8.0, maxLeft < 8.0 ? 8.0 : maxLeft);
+    final useTop = anchor?.bottom ?? (MediaQuery.paddingOf(context).top + 56);
+    var top = useTop + 6;
+    final maxTop = overlaySize.height - estHeight - 8.0;
+    if (top > maxTop) top = maxTop < 8.0 ? 8.0 : maxTop;
+
+    late final OverlayEntry entry;
+    void close([DateTime? result]) {
+      if (!entry.mounted) return;
+      entry.remove();
+      currentValue.dispose();
+      completer.complete(result ?? currentValue.value);
+    }
+
+    entry = OverlayEntry(
+      builder: (_) => Stack(
+        children: [
+          // 透明点击捕获：点外面任何地方都算「失去焦点」→ 确定当前值并收起。
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: () => close(currentValue.value),
+            ),
+          ),
+          Positioned(
+            top: top,
+            left: left,
+            child: _TimeDropdownShell(
+              mode: mode,
+              initial: initial,
+              width: width,
+              onValue: (v) => currentValue.value = v,
+            ),
+          ),
+        ],
+      ),
+    );
+    overlayState.insert(entry);
+    return completer.future;
   }
 
   // ─── 记忆档案（独立全屏页） ───────────────────────────────────────────────
@@ -763,7 +872,9 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
                   _FloatingTopChrome(
                     mode: mode,
                     startedAt: conversationStartedAt,
+                    pickerAnchor: _pickerAnchorKey,
                     onSettings: _openSettings,
+                    onEditTime: _editConversationTime,
                   ),
                   if (screenshotPaths.isNotEmpty) ...[
                     const SizedBox(height: 10),
@@ -861,17 +972,90 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
 }
 
 /// 浮动顶栏：左上角「设置」按钮（直接展开设置页，样式跟随当前选中的模式按钮），
-/// 右上角本次对话开始时间。
+/// 时间下拉的外壳：与日期胶囊同宽、同圆角裁切风格；内嵌唯一的纯数字五列
+/// 滚轮。用 SizeTransition 从顶部向下展开（220ms easeOutCubic），与「选择模式」
+/// 展开动效同款、方向相反。
+class _TimeDropdownShell extends StatefulWidget {
+  const _TimeDropdownShell({
+    required this.mode,
+    required this.initial,
+    required this.width,
+    required this.onValue,
+  });
+
+  final ModeTheme mode;
+  final DateTime initial;
+  final double width;
+  final ValueChanged<DateTime> onValue;
+
+  @override
+  State<_TimeDropdownShell> createState() => _TimeDropdownShellState();
+}
+
+class _TimeDropdownShellState extends State<_TimeDropdownShell>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  )..forward();
+  late final CurvedAnimation _curve = CurvedAnimation(
+    parent: _controller,
+    curve: Curves.easeOutCubic,
+  );
+
+  @override
+  void dispose() {
+    _curve.dispose();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = widget.mode;
+    return ClipRect(
+      // alignment 顶部：顶部固定、向下展开。
+      child: SizeTransition(
+        sizeFactor: _curve,
+        alignment: Alignment.topCenter,
+        child: CutBox(
+          width: widget.width,
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          fold: mode.cornerFold,
+          color: mode.cardBackground,
+          borderRadius: mode.cardRadius,
+          border: Border.all(color: mode.cardBorder, width: 1),
+          child: SizedBox(
+            height: 172,
+            child: TimeMiniWheel(
+              mode: mode,
+              initial: widget.initial,
+              onChanged: widget.onValue,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 右上角本次对话开始时间（可点选修改）。
 class _FloatingTopChrome extends StatelessWidget {
   const _FloatingTopChrome({
     required this.mode,
     required this.startedAt,
+    required this.pickerAnchor,
     required this.onSettings,
+    required this.onEditTime,
   });
 
   final ModeTheme mode;
   final DateTime startedAt;
+
+  /// 日期时间胶囊的锚点：时间下拉面板在它正下方往下展开。
+  final GlobalKey pickerAnchor;
   final VoidCallback onSettings;
+  final VoidCallback onEditTime;
 
   @override
   Widget build(BuildContext context) {
@@ -889,10 +1073,12 @@ class _FloatingTopChrome extends StatelessWidget {
         ),
         const Spacer(),
         PillButton(
+          key: pickerAnchor,
           mode: mode,
           icon: Icons.calendar_today_rounded,
           label: date,
           compact: true,
+          onTap: onEditTime,
         ),
       ],
     );

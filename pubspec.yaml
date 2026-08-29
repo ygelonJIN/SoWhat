@@ -17,6 +17,7 @@ dependencies:
   path_provider: ^2.1.5
   sqlite3_flutter_libs: ^0.5.40
   uuid: ^4.6.0
+  crypto: ^3.0.6
   archive: ^4.0.7
   file_picker: ^10.3.3
   share_plus: ^12.0.1

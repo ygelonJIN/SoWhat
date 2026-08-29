@@ -167,26 +167,32 @@ class MemoryGenerationService {
     };
 
     final entries = <MemoryEntry>[];
+    // 容错：模型可能把 entries 输出成单个对象而非数组，统一归一为数组再遍历。
     final rawEntries = decoded['entries'];
-    if (rawEntries is List) {
-      for (final item in rawEntries) {
-        if (item is! Map) continue;
-        final kind = _kindFromLabel(item['kind']?.toString() ?? '');
-        final summary = item['summary']?.toString().trim() ?? '';
-        if (kind == null || summary.isEmpty) continue;
-        entries.add(
-          MemoryEntry(
-            kind: kind,
-            summary: summary,
-            sources: _resolveSources(
-              cardRef: item['cardRef']?.toString().trim(),
-              conversationLabel: item['conversation']?.toString().trim(),
-              cardRefMap: cardRefMap,
-              cards: cards,
-            ),
+    final entriesList = switch (rawEntries) {
+      List() => rawEntries,
+      Map() => <Object?>[rawEntries],
+      _ => const <Object?>[],
+    };
+    for (final item in entriesList) {
+      if (item is! Map) continue;
+      // kind 必须 trim：模型在长 JSON 中常在键/值前后带空格，不做 trim 会把
+      // 九板块条目全部判为未知而静默丢弃（历史「记忆写入成功但页面空白」根因）。
+      final kind = _kindFromLabel(item['kind']?.toString().trim() ?? '');
+      final summary = item['summary']?.toString().trim() ?? '';
+      if (kind == null || summary.isEmpty) continue;
+      entries.add(
+        MemoryEntry(
+          kind: kind,
+          summary: summary,
+          sources: _resolveSources(
+            cardRef: item['cardRef']?.toString().trim(),
+            conversationLabel: item['conversation']?.toString().trim(),
+            cardRefMap: cardRefMap,
+            cards: cards,
           ),
-        );
-      }
+        ),
+      );
     }
 
     final summaries = decoded['summaries'];
@@ -282,7 +288,10 @@ class MemoryGenerationService {
   }
 
   MemoryKind? _kindFromLabel(String label) {
-    return switch (label) {
+    // 归一化：去掉所有空白（含全角空格）再匹配；模型可能在标签前后/中间
+    // 混入空格或全角符号，归一化后可避免九板块条目被误判为未知而丢弃。
+    final key = label.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+    return switch (key) {
       '双方画像' => MemoryKind.profile,
       '关系状态' => MemoryKind.relationship,
       '成长轨迹' => MemoryKind.growth,
@@ -292,15 +301,28 @@ class MemoryGenerationService {
       '雷区清单' => MemoryKind.minefield,
       '未解决的问题' => MemoryKind.openIssue,
       '承诺跟踪' => MemoryKind.promise,
+      // 容错：个别模型会输出英文枚举名（如 kind: "profile"）。
+      'profile' => MemoryKind.profile,
+      'relationship' => MemoryKind.relationship,
+      'growth' => MemoryKind.growth,
+      'trigger' => MemoryKind.trigger,
+      'commlib' => MemoryKind.commLib,
+      'comm_lib' => MemoryKind.commLib,
+      'communication' => MemoryKind.commLib,
+      'milestone' => MemoryKind.milestone,
+      'minefield' => MemoryKind.minefield,
+      'openissue' => MemoryKind.openIssue,
+      'open_issue' => MemoryKind.openIssue,
+      'promise' => MemoryKind.promise,
       _ => null,
     };
   }
 
   String _viewLabel(BattleView view) {
     return switch (view) {
-      BattleView.love => '争爱',
-      BattleView.right => '争对错',
-      BattleView.win => '争输赢',
+      BattleView.love => '为爱',
+      BattleView.right => '论对错',
+      BattleView.win => '比输赢',
     };
   }
 

@@ -50,6 +50,7 @@ class Case {
 
   Case copyWith({
     Object? title = _sentinel,
+    Object? createdAt = _sentinel,
     Object? pinnedAt = _sentinel,
     Object? background = _sentinel,
     Object? memoryFinalizedAt = _sentinel,
@@ -59,7 +60,9 @@ class Case {
     return Case(
       id: id,
       title: title == _sentinel ? this.title : title as String?,
-      createdAt: createdAt,
+      createdAt: createdAt == _sentinel
+          ? this.createdAt
+          : createdAt as DateTime,
       pinnedAt: pinnedAt == _sentinel ? this.pinnedAt : pinnedAt as DateTime?,
       background: background == _sentinel
           ? this.background

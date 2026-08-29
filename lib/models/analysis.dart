@@ -37,14 +37,35 @@ class Analysis {
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now();
 
+  Analysis copyWith({
+    String? conversationId,
+    String? turnId,
+    DateTime? memoryProcessedAt,
+  }) {
+    return Analysis(
+      id: id,
+      conversationId: conversationId ?? this.conversationId,
+      view: view,
+      channel: channel,
+      modelName: modelName,
+      content: content,
+      cards: cards,
+      createdAt: createdAt,
+      tokenCount: tokenCount,
+      duration: duration,
+      turnId: turnId ?? this.turnId,
+      memoryProcessedAt: memoryProcessedAt ?? this.memoryProcessedAt,
+    );
+  }
+
   String get viewDisplayText {
     switch (view) {
       case BattleView.love:
-        return '争爱';
+        return '为爱';
       case BattleView.right:
-        return '争对错';
+        return '论对错';
       case BattleView.win:
-        return '争输赢';
+        return '比输赢';
     }
   }
 }
