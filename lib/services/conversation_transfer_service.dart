@@ -250,6 +250,7 @@ class ConversationTransferService {
           turnId: raw['turn_id']?.toString() ?? '',
           memoryProcessedAt:
               DateTime.tryParse(raw['memory_processed_at']?.toString() ?? ''),
+          summary: raw['summary']?.toString(),
         ),
       );
     }
@@ -359,6 +360,7 @@ class ConversationTransferService {
         'duration_micros': analysis.duration?.inMicroseconds,
         'turn_id': analysis.turnId,
         'memory_processed_at': analysis.memoryProcessedAt?.toIso8601String(),
+        'summary': analysis.summary,
         'cards': analysis.cards
             .map(
               (card) => {

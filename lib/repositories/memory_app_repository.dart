@@ -475,6 +475,7 @@ class MemoryAppRepository implements AppRepository {
     DateTime? thinkingStartedAt,
     DateTime? thinkingFinishedAt,
     bool thinkingActive = false,
+    String? summary,
   }) async {
     _battleStates[analysis.conversationId] = BattleState.initial(analysis.view)
         .copyWith(
@@ -486,6 +487,7 @@ class MemoryAppRepository implements AppRepository {
           thinkingStartedAt: thinkingStartedAt,
           thinkingFinishedAt: thinkingFinishedAt,
           thinkingActive: thinkingActive,
+          summary: summary ?? analysis.summary,
         );
     _emitBattle(analysis.conversationId);
   }

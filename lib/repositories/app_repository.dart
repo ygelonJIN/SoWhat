@@ -92,6 +92,7 @@ abstract class AppRepository {
     DateTime? thinkingStartedAt,
     DateTime? thinkingFinishedAt,
     bool thinkingActive = false,
+    String? summary,
   });
 
   /// 保存思考过程到当前视角的 BattleState（分析进行中实时调用）。

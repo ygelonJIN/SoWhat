@@ -133,6 +133,7 @@ Map<String, dynamic> analysisToRow(Analysis a) => {
   'memory_processed_at': a.memoryProcessedAt == null
       ? null
       : _epoch(a.memoryProcessedAt!),
+  'summary': a.summary,
 };
 
 Analysis rowToAnalysis(Map<String, dynamic> row) => Analysis(
@@ -152,6 +153,7 @@ Analysis rowToAnalysis(Map<String, dynamic> row) => Analysis(
   memoryProcessedAt: row['memory_processed_at'] == null
       ? null
       : _fromEpoch(row['memory_processed_at'] as int),
+  summary: row['summary'] as String?,
 );
 
 // ── BattleState / BattleCard ────────────────────────────────────────────
@@ -203,6 +205,7 @@ Map<String, dynamic> battleStateToRow(String conversationId, BattleState b) =>
       'thinking_finished_at':
           b.thinkingFinishedAt == null ? null : _epoch(b.thinkingFinishedAt!),
       'thinking_active': b.thinkingActive ? 1 : 0,
+      'summary': b.summary,
     };
 
 BattleState rowToBattleState(Map<String, dynamic> row) => BattleState(
@@ -225,6 +228,7 @@ BattleState rowToBattleState(Map<String, dynamic> row) => BattleState(
       ? null
       : _fromEpoch(row['thinking_finished_at'] as int),
   thinkingActive: (row['thinking_active'] as int? ?? 0) != 0,
+  summary: row['summary'] as String?,
 );
 
 // ── MemoryEntry ─────────────────────────────────────────────────────────

@@ -558,6 +558,7 @@ class AppRepositoryActions {
               duration: analysis.duration,
               turnId: effectiveTurnId,
               memoryProcessedAt: analysis.memoryProcessedAt,
+              summary: analysis.summary,
             )
           : analysis;
       await repository.saveAnalysis(savedAnalysis);
@@ -581,6 +582,7 @@ class AppRepositoryActions {
         thinkingStartedAt: thinkingStartTime,
         thinkingFinishedAt: DateTime.now(),
         thinkingActive: false,
+        summary: savedAnalysis.summary,
       );
       if (cancelCompleter.isCompleted) return skippedImages;
       _setThinkingState(

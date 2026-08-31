@@ -87,7 +87,8 @@ class AppDatabase extends GeneratedDatabase {
         token_count INTEGER NOT NULL DEFAULT 0,
         duration_micros INTEGER,
         turn_id TEXT NOT NULL DEFAULT '',
-        memory_processed_at INTEGER
+        memory_processed_at INTEGER,
+        summary TEXT
       )
     ''');
     await customStatement(
@@ -111,6 +112,7 @@ class AppDatabase extends GeneratedDatabase {
         thinking_started_at INTEGER,
         thinking_finished_at INTEGER,
         thinking_active INTEGER NOT NULL DEFAULT 0,
+        summary TEXT,
         PRIMARY KEY (conversation_id, view)
       )
     ''');

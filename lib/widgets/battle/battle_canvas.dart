@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/models.dart';
 import '../../providers/app_providers.dart';
+import '../../theme/fold_decoration.dart';
 import '../../theme/mode_theme.dart';
 import '../cards/analysis_card.dart';
 import '../thinking/thinking_panel.dart';
@@ -110,6 +111,14 @@ class _BattleCanvasState extends State<BattleCanvas> {
                 widget.state.cards.isEmpty &&
                 !showThinking)
               _EmptyBattleState(mode: widget.mode),
+            if ((widget.state.summary?.trim().isNotEmpty ?? false))
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: _SummaryBlock(
+                  summary: widget.state.summary!,
+                  mode: widget.mode,
+                ),
+              ),
             ...widget.state.cards.map(
               (card) => Padding(
                 padding: const EdgeInsets.only(top: 12),
@@ -119,6 +128,57 @@ class _BattleCanvasState extends State<BattleCanvas> {
           ],
         );
       },
+    );
+  }
+}
+
+/// 战况小结块：模型在输出契约 JSON `headline` 字段里给的一行小结
+/// （天平偏向 / 树的状态 / 比分与代价），展示在分析卡片流顶部。
+class _SummaryBlock extends StatelessWidget {
+  const _SummaryBlock({required this.summary, required this.mode});
+
+  final String summary;
+  final ModeTheme mode;
+
+  @override
+  Widget build(BuildContext context) {
+    return CutBox(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      fold: mode.cornerFold,
+      color: mode.primary.withValues(alpha: 0.06),
+      borderRadius: mode.cardRadius,
+      border: Border.all(color: mode.primary.withValues(alpha: 0.32)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.auto_awesome_rounded, size: 13, color: mode.primary),
+              const SizedBox(width: 6),
+              Text(
+                '战况小结',
+                style: TextStyle(
+                  color: mode.primary,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            summary,
+            style: TextStyle(
+              color: mode.cardBody,
+              fontSize: 13,
+              height: 1.5,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

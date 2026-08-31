@@ -53,20 +53,19 @@ class MemoryGenerationService {
     return '${formatDate(caseItem.createdAt)} ${formatTime(caseItem.createdAt)}';
   }
 
-  /// 记忆生成提示词（v6）。
+  /// 记忆生成提示词。
   ///
-  /// 输出契约：JSON，`entries` 每条带「kind / summary / cardRef」，
-  /// `summaries` 四份极其完善的综合档案（user / partner / relationship / growth）。
+  /// 输出契约：JSON，`entries` 每条带「kind / summary / conversation / cardRef」，
+  /// `summaries` 四份综合档案（user / partner / relationship / growth）。
+  /// 条目按「每个对话、每个板块最多一条」聚合，不加仍在/变化/新观察前缀。
   String buildPrompt({
     required MemoryProfile memory,
     required List<GenerationCard> cards,
   }) {
     final buffer = StringBuffer()
-      ..writeln('你是这对情侣的长期关系档案管理员。用户点「更新记忆」时，把新增的分析卡片增量写进一份统一长期记忆。')
+      ..writeln('你是这对情侣的长期关系档案管理员。用户点「更新记忆」时，把新增的分析卡片按对话聚合，增量写进一份统一长期记忆。')
       ..writeln('长期记忆只有一份，不按模式拆分。模式只是分析视角，不是记忆分区。')
-      ..writeln('本次输入可能来自 1 个、2 个或 3 个模式，请只根据实际提供的卡片进行融合，不要假设三种模式都存在。')
-      ..writeln('同一对话未来不会重复写入长期记忆；你只负责输出当前这一次、对当前未消化卡片的统一归档。')
-      ..writeln('如果同一对话里同时出现多个模式的卡片，请把它们合并成一份客观、稳定、去模式化的最终档案。')
+      ..writeln('本轮卡片可能来自 1 个或多个对话；同一对话的多张卡片（无论来自几个模式）按对话合并，不要假设某几种模式都存在。')
       ..writeln('称呼铁律（两人绝不能搞混）：「我」= 使用本 App 的人，也就是原对话里标着「我」的一方；「TA」= 另一人，也就是原对话里标着「TA」的一方。一律用「双方 / 我 / TA」，禁止「你、他、她、A、B、男方、女方、对方」等任何其他称呼；判断谁是谁时，以卡片证据里「我 / TA」的原文标签为准。')
       ..writeln('你只输出一个 JSON 对象，不要任何其他文字。')
       ..writeln()
@@ -75,20 +74,29 @@ class MemoryGenerationService {
       ..writeln(_formatMemory(memory))
       ..writeln('</memory>')
       ..writeln()
-      ..writeln('【输入二：本轮新增卡片】')
+      ..writeln('【输入二：本轮新增卡片（已按对话分组）】')
       ..writeln('<cards>');
 
-    for (var i = 0; i < cards.length; i++) {
-      final card = cards[i];
+    // 按对话分组，同一对话的卡片连续排列，让模型按对话聚合输出。
+    final grouped = <String, List<GenerationCard>>{};
+    for (final card in cards) {
+      grouped.putIfAbsent(card.conversationId, () => []).add(card);
+    }
+    var cardIndex = 0;
+    for (final group in grouped.values) {
+      final first = group.first;
       buffer
-        ..writeln('[卡片${i + 1}]')
-        ..writeln('  对话：${card.conversationLabel}')
-        ..writeln('  日期：${_formatDateTime(card.happenedAt)}')
-        ..writeln('  注意：同一对话的多个卡片共享同一个来源时间；界面只显示一次日期时间。')
-        ..writeln('  视角：${_viewLabel(card.view)}')
-        ..writeln('  维度：${card.dimension}')
-        ..writeln('  结论：${card.conclusion}')
-        ..writeln('  证据：${card.evidence}');
+        ..writeln('[对话：${first.conversationLabel}]')
+        ..writeln('  对话日期：${_formatDateTime(first.happenedAt)}');
+      for (final card in group) {
+        cardIndex++;
+        buffer
+          ..writeln('  [卡片$cardIndex]')
+          ..writeln('    视角：${_viewLabel(card.view)}')
+          ..writeln('    维度：${card.dimension}')
+          ..writeln('    结论：${card.conclusion}')
+          ..writeln('    证据：${card.evidence}');
+      }
     }
 
     buffer
@@ -109,24 +117,19 @@ class MemoryGenerationService {
       ..writeln('4. 即使本轮没有新认知，也必须原样保留旧概况的全部内容。')
       ..writeln('5. 适度精简：若旧概况已很长，可在不丢核心事实的前提下，把过时或次要的细节适当压缩，避免概况无限膨胀。')
       ..writeln()
-      ..writeln('▍二、增量条目 entries —— 九个板块')
-      ..writeln('动态类（双方画像、关系状态、成长轨迹）——要「对照旧档案」：')
-      ..writeln('如果本次卡片来自同一对话的不同模式，请综合它们生成更客观的统一条目，不要按模式分别输出三份记忆。')
-      ..writeln('先读旧档案中同板块的旧条目，再看本轮卡片，判断关系：')
-      ..writeln('- 旧档案里没有相关旧条目（第一次记录）→ 写新条目，以「新观察：…」开头。')
-      ..writeln('- 卡片观察与旧条目描述「一致」（同一模式再次出现）→ 写新条目，以「仍在：…」开头。')
-      ..writeln('- 卡片观察与旧条目描述「不一致 / 有新发现」→ 写新条目，以「变化：…」开头，写清从什么变成了什么。')
-      ..writeln('  示例：旧条目「TA 冲突时倾向沉默」；卡片说「TA 又沉默」→「仍在：TA 冲突时倾向沉默」；卡片说「TA 主动开口表达」→「变化：TA 从沉默变为主动表达」；旧档案没有这条 →「新观察：TA 冲突时会先沉默再开口」。')
-      ..writeln('  注意：条目正文一律纯文本，禁止用星号（**）、反引号等任何 markdown 标记；「仍在/变化/新观察」只用「标签：正文」这一种格式。')
-      ..writeln('静态类（矛盾触发点、有效沟通方式库、关系里程碑、雷区清单、未解决的问题、承诺跟踪）——只增量，但要先去重：')
-      ..writeln('本轮卡片里能观察到、且旧档案没有实质重复的内容，直接写成新条目；同一对话或同一事实在多个模式卡片中重复出现时，只输出一条，合并 cardRef；若已存在等价条目，不再重复追加。')
-      ..writeln('动态类也要去重：同一对话、同一事实的多张卡片合并为一条，多个来源用逗号分隔。旧条目一律保留，只追加有新信息的条目，不覆盖。')
-      ..writeln('每条必须标注出处：cardRef 填「卡片N」（引用输入卡片编号，多个来源用逗号分隔，如「卡片1,卡片3」），不要改写编号。')
+      ..writeln('▍二、条目 entries —— 九个板块')
+      ..writeln('九个板块：双方画像 / 关系状态 / 成长轨迹 / 矛盾触发点 / 有效沟通方式库 / 关系里程碑 / 雷区清单 / 未解决的问题 / 承诺跟踪。')
+      ..writeln('按对话聚合，规则：')
+      ..writeln('- 每个对话、每个板块最多输出一条；该对话的全部卡片（跨模式、跨维度）在该板块合并成一条客观观察。')
+      ..writeln('- 某个对话在某个板块没有可记录的内容时，不输出该板块条目；不要为了凑数硬写。')
+      ..writeln('- 条目正文直接写具体观察，不加「仍在 / 变化 / 新观察」等任何前缀，也不与旧条目做对比。')
+      ..writeln('- 旧条目一律保留，只追加新对话的条目，不覆盖、不删除。')
+      ..writeln('- 每条标注出处：conversation 填该对话标识（「对话：…」里的名称，原样回填），cardRef 填该对话的全部卡片编号（逗号分隔，如「卡片1,卡片3」），不要改写编号。')
       ..writeln()
       ..writeln('【输出顺序】')
       ..writeln('第一步：写四份概况，务必完整。')
-      ..writeln('第二步：写增量条目，按九板块逐个处理（先动态类三块，再静态类六块）。')
-      ..writeln('第三步：检查 JSON——括号闭合、字段完整、cardRef 用输入原文。')
+      ..writeln('第二步：写条目，按九个板块逐个处理。')
+      ..writeln('第三步：检查 JSON——括号闭合、字段完整、conversation 与 cardRef 用输入原文。')
       ..writeln()
       ..writeln('【铁律】')
       ..writeln('1. 只写卡片里能看到的事实，不编造。')
@@ -139,8 +142,8 @@ class MemoryGenerationService {
       ..writeln()
       ..writeln('【输出 JSON】')
       ..writeln('{ "entries": [')
-      ..writeln('    { "kind": "双方画像", "summary": "仍在：TA 冲突时倾向沉默", "cardRef": "卡片1" },')
-      ..writeln('    { "kind": "矛盾触发点", "summary": "谈到「钱」时容易起争执", "cardRef": "卡片2,卡片3" }')
+      ..writeln('    { "kind": "双方画像", "summary": "TA 冲突时倾向沉默", "conversation": "对话名或日期时间", "cardRef": "卡片1" },')
+      ..writeln('    { "kind": "矛盾触发点", "summary": "谈到「钱」时容易起争执", "conversation": "对话名或日期时间", "cardRef": "卡片2,卡片3" }')
       ..writeln('  ],')
       ..writeln('  "summaries": { "user": "…", "partner": "…", "relationship": "…", "growth": "…" } }')
       ..writeln('kind 只允许九值之一：双方画像 / 关系状态 / 成长轨迹 / 矛盾触发点 / 有效沟通方式库 / 关系里程碑 / 雷区清单 / 未解决的问题 / 承诺跟踪。');

@@ -18,6 +18,11 @@ class BattleState {
   final DateTime? thinkingFinishedAt;
   final bool thinkingActive;
 
+  /// 模型产出的战况小结（输出契约 JSON 的 `headline` 字段：天平偏向 /
+  /// 树的状态 / 比分与代价），在分析卡片流顶部展示；与 App 自算的
+  /// [headline]（界面不渲染）相互独立。
+  final String? summary;
+
   const BattleState({
     required this.view,
     required this.userScore,
@@ -34,6 +39,7 @@ class BattleState {
     this.thinkingStartedAt,
     this.thinkingFinishedAt,
     this.thinkingActive = false,
+    this.summary,
   });
 
   factory BattleState.initial([BattleView view = BattleView.love]) {
@@ -68,6 +74,7 @@ class BattleState {
     DateTime? thinkingStartedAt,
     DateTime? thinkingFinishedAt,
     bool? thinkingActive,
+    String? summary,
   }) {
     return BattleState(
       view: view ?? this.view,
@@ -85,6 +92,7 @@ class BattleState {
       thinkingStartedAt: thinkingStartedAt ?? this.thinkingStartedAt,
       thinkingFinishedAt: thinkingFinishedAt ?? this.thinkingFinishedAt,
       thinkingActive: thinkingActive ?? this.thinkingActive,
+      summary: summary ?? this.summary,
     );
   }
 

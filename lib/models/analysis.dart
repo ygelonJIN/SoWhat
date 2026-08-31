@@ -21,6 +21,10 @@ class Analysis {
   /// 被「更新记忆」消化的时间；为空表示尚未进入记忆档案。
   final DateTime? memoryProcessedAt;
 
+  /// 模型产出的战况小结（输出契约 JSON 的 `headline` 字段），随卡片一起
+  /// 解析、持久化；渲染由 `BattleState.summary` 承载。
+  final String? summary;
+
   Analysis({
     String? id,
     required this.conversationId,
@@ -34,6 +38,7 @@ class Analysis {
     this.duration,
     this.turnId = '',
     this.memoryProcessedAt,
+    this.summary,
   }) : id = id ?? const Uuid().v4(),
        createdAt = createdAt ?? DateTime.now();
 
@@ -55,6 +60,7 @@ class Analysis {
       duration: duration,
       turnId: turnId ?? this.turnId,
       memoryProcessedAt: memoryProcessedAt ?? this.memoryProcessedAt,
+      summary: summary,
     );
   }
 

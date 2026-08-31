@@ -80,23 +80,15 @@ String cleanMemoryText(String text) {
   s = s.replaceAll(RegExp(r'(?<!\$)\$([^$\n]+)\$(?!\$)'), r'$1');
   // 孤立的美金符号：前后都不挨数字才删（$100 / 100$ 保留）
   s = s.replaceAll(RegExp(r'(?<!\$)(?<![0-9])\$(?!\$)(?![0-9])'), '');
+  // 历史残留的「仍在 / 变化 / 新观察」变化前缀（v6 旧机制，v7 已移除），
+  // 清掉前缀只留正文，避免旧档案界面出现孤立标签。
+  s = s.replaceAll(
+    RegExp(r'^[ \t]*(仍在|变化|新观察)[：:，,\s][ \t]*', multiLine: true),
+    '',
+  );
   // 收敛多余空白与空行
   s = s.replaceAll(RegExp(r'[ \t]+'), ' ');
   s = s.replaceAll(RegExp(r' *\n *'), '\n');
   s = s.replaceAll(RegExp(r'\n{3,}'), '\n\n');
   return s.trim();
-}
-
-/// 记忆条目开头的「仍在 / 变化 / 新观察」变化标签（记忆生成契约里要求用这
-/// 几种前缀开头），抽出来单独渲染成小标签；不是这几种前缀时原样返回文本。
-({String? label, String text}) splitMemoryEntryLabel(String summary) {
-  final text = summary.trim();
-  final match = RegExp(
-    r'^(仍在|变化|新观察)[：:\s,，]?[\s]*(.*)$',
-    dotAll: true,
-  ).firstMatch(text);
-  if (match == null) return (label: null, text: text);
-  final rest = (match.group(2) ?? '').trim();
-  if (rest.isEmpty) return (label: null, text: text);
-  return (label: match.group(1), text: rest);
 }

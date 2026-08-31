@@ -134,6 +134,11 @@ class DriftAppRepository implements AppRepository {
         "ALTER TABLE analyses ADD COLUMN turn_id TEXT NOT NULL DEFAULT ''",
       );
     }
+    if (!tableColumns['analyses']!.contains('summary')) {
+      await _db.customStatement(
+        'ALTER TABLE analyses ADD COLUMN summary TEXT',
+      );
+    }
 
     final battleColumns = tableColumns['battle_states']!;
     if (battleColumns.contains('conversation_id') &&
@@ -199,6 +204,18 @@ class DriftAppRepository implements AppRepository {
     if (!battleColumns.contains('thinking_active')) {
       await _db.customStatement(
         "ALTER TABLE battle_states ADD COLUMN thinking_active INTEGER NOT NULL DEFAULT 0",
+      );
+    }
+
+    // 迁移：battle_states 增加战况小结字段（模型 headline）。
+    // 若上方刚重建过 battle_states 主键，重新读一遍列结构再补列。
+    final battleColumnsFresh =
+        (await _db.customSelect('PRAGMA table_info(battle_states)').get())
+            .map((row) => row.data['name'] as String)
+            .toSet();
+    if (!battleColumnsFresh.contains('summary')) {
+      await _db.customStatement(
+        'ALTER TABLE battle_states ADD COLUMN summary TEXT',
       );
     }
 
@@ -288,7 +305,8 @@ class DriftAppRepository implements AppRepository {
         token_count INTEGER NOT NULL DEFAULT 0,
         duration_micros INTEGER,
         turn_id TEXT NOT NULL DEFAULT '',
-        memory_processed_at INTEGER
+        memory_processed_at INTEGER,
+        summary TEXT
       )
     ''');
     await _db.customStatement(
@@ -900,7 +918,7 @@ class DriftAppRepository implements AppRepository {
     await _ensureReady();
     final row = cv.analysisToRow(analysis);
     await _db.customStatement(
-      'INSERT OR REPLACE INTO analyses (id, conversation_id, view, channel, model_name, content, cards_json, created_at, token_count, duration_micros, turn_id, memory_processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'INSERT OR REPLACE INTO analyses (id, conversation_id, view, channel, model_name, content, cards_json, created_at, token_count, duration_micros, turn_id, memory_processed_at, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         row['id'] as String,
         row['conversation_id'] as String,
@@ -914,6 +932,7 @@ class DriftAppRepository implements AppRepository {
         row['duration_micros'] as int?,
         row['turn_id'] as String? ?? '',
         row['memory_processed_at'] as int?,
+        row['summary'] as String?,
       ],
     );
     _emitAnalyses(
@@ -984,7 +1003,7 @@ class DriftAppRepository implements AppRepository {
       for (final analysis in analyses) {
         final aRow = cv.analysisToRow(analysis);
         await _db.customStatement(
-          'INSERT OR REPLACE INTO analyses (id, conversation_id, view, channel, model_name, content, cards_json, created_at, token_count, duration_micros, turn_id, memory_processed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'INSERT OR REPLACE INTO analyses (id, conversation_id, view, channel, model_name, content, cards_json, created_at, token_count, duration_micros, turn_id, memory_processed_at, summary) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [
             aRow['id'] as String,
             aRow['conversation_id'] as String,
@@ -998,6 +1017,7 @@ class DriftAppRepository implements AppRepository {
             aRow['duration_micros'] as int?,
             aRow['turn_id'] as String? ?? '',
             aRow['memory_processed_at'] as int?,
+            aRow['summary'] as String?,
           ],
         );
         // 恢复战场状态：该视角还没有状态时用导入的分析卡片重建，
@@ -1034,14 +1054,15 @@ class DriftAppRepository implements AppRepository {
           headline: _headlineFor(analysis.view),
           cards: cards,
           updatedAt: analysis.createdAt,
+          summary: analysis.summary,
         );
         final sRow = cv.battleStateToRow(caseItem.id, state);
         await _db.customStatement(
           'INSERT OR REPLACE INTO battle_states '
           '(conversation_id, view, user_score, partner_score, user_hp, partner_hp, '
           'user_love, partner_love, justice_balance, headline, cards_json, updated_at, '
-          'thinking_content, thinking_started_at, thinking_finished_at, thinking_active) '
-          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          'thinking_content, thinking_started_at, thinking_finished_at, thinking_active, summary) '
+          'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [
             sRow['conversation_id'] as String,
             sRow['view'] as int,
@@ -1059,6 +1080,7 @@ class DriftAppRepository implements AppRepository {
             sRow['thinking_started_at'] as int?,
             sRow['thinking_finished_at'] as int?,
             sRow['thinking_active'] as int,
+            sRow['summary'] as String?,
           ],
         );
       }
@@ -1347,6 +1369,7 @@ class DriftAppRepository implements AppRepository {
     DateTime? thinkingStartedAt,
     DateTime? thinkingFinishedAt,
     bool thinkingActive = false,
+    String? summary,
   }) async {
     await _ensureReady();
     final state = BattleState(
@@ -1365,14 +1388,15 @@ class DriftAppRepository implements AppRepository {
       thinkingStartedAt: thinkingStartedAt,
       thinkingFinishedAt: thinkingFinishedAt,
       thinkingActive: thinkingActive,
+      summary: summary ?? analysis.summary,
     );
     final row = cv.battleStateToRow(analysis.conversationId, state);
     await _db.customStatement(
       'INSERT OR REPLACE INTO battle_states '
       '(conversation_id, view, user_score, partner_score, user_hp, partner_hp, '
       'user_love, partner_love, justice_balance, headline, cards_json, updated_at, '
-      'thinking_content, thinking_started_at, thinking_finished_at, thinking_active) '
-      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+      'thinking_content, thinking_started_at, thinking_finished_at, thinking_active, summary) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [
         row['conversation_id'] as String,
         row['view'] as int,
@@ -1390,6 +1414,7 @@ class DriftAppRepository implements AppRepository {
         row['thinking_started_at'] as int?,
         row['thinking_finished_at'] as int?,
         row['thinking_active'] as int,
+        row['summary'] as String?,
       ],
     );
     _emitBattle(analysis.conversationId, state);

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../models/models.dart';
@@ -289,14 +290,14 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
                     onTap: () => _showAssetManagementPlaceholder(context, mode),
                   ),
                   const SizedBox(height: 10),
-                  // 导入聊天（左）与清空数据（右）同一行、各占一半、等宽。
+                  // 恢复备份（左）与清空数据（右）同一行、各占一半、等宽。
                   Row(
                     children: [
                       Expanded(
                         child: _SecondaryActionButton(
                           mode: mode,
-                          icon: Icons.file_download_outlined,
-                          label: '导入聊天',
+                          icon: Icons.settings_backup_restore,
+                          label: '恢复备份',
                           onTap: () => _importConversation(context),
                         ),
                       ),
@@ -320,8 +321,8 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
     );
   }
 
-  /// 导入聊天记录：选 .sowhat.zip → 服务层校验（格式/校验和）+ 原子入库 +
-  /// 重复导入去重，成功后切换到导入的对话。
+  /// 恢复备份：选 .sowhat.zip → 服务层校验（格式/校验和）+ 原子入库 +
+  /// 重复导入去重，成功后切换到恢复的对话。
   Future<void> _importConversation(BuildContext context) async {
     final mode = widget.mode;
     final picked = await FilePicker.platform.pickFiles(
@@ -340,14 +341,14 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
       );
       if (!mounted) return;
       ref.read(selectedConversationIdProvider.notifier).state = id;
-      FeedbackDialog.show(context, mode, message: '导入成功，已切换到该对话。');
+      FeedbackDialog.show(context, mode, message: '恢复成功，已切换到该对话。');
     } on FormatException catch (error) {
       if (mounted) {
-        FeedbackDialog.error(context, mode, '导入失败：${error.message}');
+        FeedbackDialog.error(context, mode, '恢复失败：${error.message}');
       }
     } catch (error) {
       if (mounted) {
-        FeedbackDialog.error(context, mode, '导入失败：$error');
+        FeedbackDialog.error(context, mode, '恢复失败：$error');
       }
     }
   }
@@ -583,8 +584,12 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
             memory: selected.memory,
             assets: selected.assets,
           );
-      // 重置当前对话选择，让界面回到空白态。
-      ref.read(selectedConversationIdProvider.notifier).state = null;
+      // 勾选了「聊天记录」时对话已全删：重新解析一段可编辑的当前对话，
+      // 避免 selected 置空后主界面只剩转圈（ensureConversation 只会自动处理
+      // selected 无效/为空的情况）。
+      if (selected.conversations) {
+        await ref.read(repositoryActionsProvider).ensureConversation();
+      }
       ref.invalidate(casesProvider);
       ref.invalidate(memoryProfileProvider);
       ref.invalidate(assetsProvider);
@@ -715,9 +720,9 @@ class _RowActionMenu extends StatelessWidget {
                   _menuDivider(mode),
                   _MenuAction(
                     mode: mode,
-                    icon: Icons.ios_share_rounded,
-                    label: '分享',
-                    onTap: () => Navigator.of(context).pop('share'),
+                    icon: Icons.save_alt_rounded,
+                    label: '备份',
+                    onTap: () => Navigator.of(context).pop('backup'),
                   ),
                   _menuDivider(mode),
                   _MenuAction(
@@ -1322,6 +1327,24 @@ class _AssetManagementScreenState
   /// 当前展开显示缩略图的对话 id 集合。
   final Set<String> _expanded = {};
 
+  final _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() => _query = value);
+  }
+
+  void _clearSearch() {
+    _searchController.clear();
+    _onSearchChanged('');
+  }
+
   Future<List<_ConversationAssets>> _loadGroups() async {
     final repository = ref.read(appRepositoryProvider);
     final cases = await repository.watchCases().first;
@@ -1518,7 +1541,14 @@ class _AssetManagementScreenState
       body: FutureBuilder<List<_ConversationAssets>>(
         future: _loadGroups(),
         builder: (context, snapshot) {
-          final groups = snapshot.data ?? const <_ConversationAssets>[];
+          final allGroups = snapshot.data ?? const <_ConversationAssets>[];
+          // 搜索命中范围：对话名（自定义名称）+ 日期时间，与聊天记录一致。
+          final query = _query.trim().toLowerCase();
+          final groups = query.isEmpty
+              ? allGroups
+              : allGroups
+                    .where((g) => g.label.toLowerCase().contains(query))
+                    .toList();
           final totalCount = groups.fold<int>(
             0,
             (sum, g) => sum + g.images.length,
@@ -1528,7 +1558,7 @@ class _AssetManagementScreenState
             0,
             (sum, g) => sum + g.totalSizeBytes,
           );
-          if (groups.isEmpty) {
+          if (allGroups.isEmpty) {
             return Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1550,7 +1580,16 @@ class _AssetManagementScreenState
           return Column(
             children: [
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 10),
+                child: _SettingsSearchField(
+                  mode: mode,
+                  controller: _searchController,
+                  onChanged: _onSearchChanged,
+                  onClear: _clearSearch,
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: Text(
                   '共 ${groups.length} 个对话 · $totalCount 张图片 · 占用 ${_formatSize(totalBytes)}',
                   style: TextStyle(color: mode.textMuted, fontSize: 12),
@@ -1559,7 +1598,9 @@ class _AssetManagementScreenState
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
                 child: Text(
-                  '按对话整组管理，展开即可查看该对话的全部图片；删除按对话进行。',
+                  groups.isEmpty
+                      ? '没有找到相关图片，换个对话名或日期试试。'
+                      : '按对话整组管理，展开即可查看该对话的全部图片；删除按对话进行。',
                   style: TextStyle(
                     color: mode.textMuted,
                     fontSize: 11,
@@ -2361,28 +2402,162 @@ class _ConversationRowState extends ConsumerState<_ConversationRow> {
         await _togglePinned();
       case 'rename':
         await _showRenameDialog();
-      case 'share':
-        await _shareConversation();
+      case 'backup':
+        await _backupConversation();
       case 'delete':
         await _confirmDelete();
     }
   }
 
-  Future<void> _shareConversation() async {
+  /// 备份当前对话：导出 .sowhat.zip 到临时文件，再弹等效双选对话框
+  /// ——「保存到本机」或「导出到其他应用」（微信等，系统分享面板），
+  /// 两个动作平级、不预设默认路径；点取消则丢弃临时文件（不残留）。
+  Future<void> _backupConversation() async {
     try {
       final file = await const ConversationTransferService().exportConversation(
         repository: ref.read(appRepositoryProvider),
         conversationId: caseItem.id,
       );
       if (!mounted) return;
+      final action = await _showBackupTargetDialog();
+      if (action == null) {
+        // 取消：丢弃临时导出，不留残留。
+        if (await file.exists()) await file.delete();
+        return;
+      }
+      if (!mounted) return;
+      if (action == 'save') {
+        final saved = await _persistBackupFile(file);
+        if (!mounted) return;
+        FeedbackDialog.show(
+          context,
+          mode,
+          message: '备份成功，已保存到：\n${saved.path}',
+        );
+      } else {
+        await _shareBackupFile(file);
+      }
+    } catch (error) {
+      if (mounted) {
+        FeedbackDialog.error(context, mode, '备份失败：$error');
+      }
+    }
+  }
+
+  /// 平级选择备份去向：保存到本机 / 导出到其他应用 / 取消。
+  /// 返回 'save' / 'export' / null（取消）。
+  Future<String?> _showBackupTargetDialog() async {
+    final mode = widget.mode;
+    return showDialog<String>(
+      context: context,
+      builder: (_) => Dialog(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        child: Material(
+          color: mode.cardBackground,
+          shape: FoldShape(
+            borderRadius: mode.cardRadius,
+            side: BorderSide(color: mode.cardBorder, width: 1),
+            fold: mode.cornerFold,
+          ),
+          clipBehavior: Clip.antiAlias,
+          elevation: 14,
+          shadowColor: Colors.black.withValues(
+            alpha: (mode.cardShadowAlpha + 0.10).clamp(0, 1),
+          ),
+          child: SizedBox(
+            width: 252,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: _DialogHeader(
+                    mode: mode,
+                    icon: Icons.save_alt_rounded,
+                    title: '备份对话',
+                  ),
+                ),
+                const SizedBox(height: 6),
+                _menuDivider(mode),
+                _MenuAction(
+                  mode: mode,
+                  icon: Icons.drive_file_move_outline,
+                  label: '保存到本机',
+                  onTap: () => Navigator.of(context).pop('save'),
+                ),
+                _menuDivider(mode),
+                _MenuAction(
+                  mode: mode,
+                  icon: Icons.ios_share_rounded,
+                  label: '导出到其他应用',
+                  onTap: () => Navigator.of(context).pop('export'),
+                ),
+                _menuDivider(mode),
+                _MenuAction(
+                  mode: mode,
+                  icon: Icons.close_rounded,
+                  label: '取消',
+                  onTap: () => Navigator.of(context).pop(null),
+                ),
+                const SizedBox(height: 6),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// 通过系统分享面板把备份文件发给微信等其他应用（仅发文件）。
+  Future<void> _shareBackupFile(File file) async {
+    try {
       await SharePlus.instance.share(
-        ShareParams(files: [XFile(file.path)], text: 'So What 聊天记录分享包'),
+        ShareParams(files: [XFile(file.path)], text: 'So What 聊天记录备份'),
       );
     } catch (error) {
       if (mounted) {
-        FeedbackDialog.error(context, mode, '分享失败：$error');
+        FeedbackDialog.error(context, mode, '导出失败：$error');
       }
     }
+  }
+
+  /// 把临时导出文件移动到用户可访问的目录：
+  /// Android 优先下载目录；iOS 用应用文档目录（Downloads 目录即便创建，
+  /// 配 UIFileSharingEnabled 后「文件」App 也只会暴露 Documents；且该目录
+  /// 默认不存在，直接 rename 会失败）。同名备份加时间戳避免相互覆盖。
+  Future<File> _persistBackupFile(File tempFile) async {
+    // iOS：直接存 Documents（文件 App 可见）；其余平台优先下载目录。
+    late Directory directory;
+    if (Platform.isIOS) {
+      directory = await getApplicationDocumentsDirectory();
+    } else {
+      try {
+        directory =
+            await getDownloadsDirectory() ??
+            await getApplicationDocumentsDirectory();
+      } catch (_) {
+        directory = await getApplicationDocumentsDirectory();
+      }
+    }
+    // 目标目录可能默认不存在（尤其 iOS Downloads），先递归创建。
+    if (!await directory.exists()) {
+      await directory.create(recursive: true);
+    }
+    final base = tempFile.path.split(Platform.pathSeparator).last;
+    final dot = base.lastIndexOf('.');
+    final name = dot >= 0 ? base.substring(0, dot) : base;
+    final ext = dot >= 0 ? base.substring(dot) : '';
+    final stamp = DateTime.now().millisecondsSinceEpoch;
+    final target = File(
+      '${directory.path}${Platform.pathSeparator}$name-$stamp$ext',
+    );
+    // 复制到持久目录（非 rename，避免跨目录/跨卷移动失败；也保留缓存时不删
+    // 原始，若无异常再清理）。
+    await tempFile.copy(target.path);
+    if (await tempFile.exists()) await tempFile.delete();
+    return target;
   }
 
   Future<void> _togglePinned() async {

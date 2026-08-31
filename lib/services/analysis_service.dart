@@ -170,14 +170,15 @@ class AnalysisService {
                 },
         );
         onDebug?.call('已收到模型响应，正在解析维度卡片…');
-        final cards = parseCards(view, raw);
+        final parsed = parseAnalysisContent(view, raw);
         return Analysis(
           conversationId: conversationId,
           view: view,
           channel: channel,
           modelName: config.effectiveModel,
           content: raw,
-          cards: cards,
+          cards: parsed.cards,
+          summary: parsed.summary,
           tokenCount: prompt.length,
         );
       } on AiRequestException catch (error) {
@@ -236,7 +237,16 @@ class AnalysisService {
 
   /// 公开的二次解析入口：对已保存的模型原文（[Analysis.content]）重新解析，
   /// 与首次解析走完全相同的健壮性管线，便于「失败后保留原文、稍后重试」。
-  List<AnalysisCard> parseCards(BattleView view, String raw) {
+  List<AnalysisCard> parseCards(BattleView view, String raw) =>
+      parseAnalysisContent(view, raw).cards;
+
+  /// 解析模型原文 → 维度卡片 + 战况小结（输出契约 JSON 的 `headline` 字段）。
+  ///
+  /// 战况小结为可选项：模型没给 / 给空串时返回 null，不影响卡片解析。
+  ({List<AnalysisCard> cards, String? summary}) parseAnalysisContent(
+    BattleView view,
+    String raw,
+  ) {
     final text = _normalizeJson(_stripFences(raw.trim()));
     if (_looksTruncated(text)) {
       throw const AiRequestException(
@@ -249,6 +259,15 @@ class AnalysisService {
       throw const AiRequestException('模型返回结构异常，已保留原文可二次解析。请重试。');
     }
 
+    final summary = decoded['headline']?.toString().trim() ?? '';
+    return (
+      cards: _extractCards(view, decoded),
+      summary: summary.isEmpty ? null : summary,
+    );
+  }
+
+  /// 从已解码的 JSON 里提取维度卡片（容错：cards 可能是数组或单个对象）。
+  List<AnalysisCard> _extractCards(BattleView view, Map decoded) {
     // cards 可能是数组，也可能被输出成单个对象（容错）。
     final rawCards = decoded['cards'];
     final items = switch (rawCards) {

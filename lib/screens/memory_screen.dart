@@ -90,8 +90,13 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
     final cases = ref.watch(casesProvider).valueOrNull ?? const <Case>[];
     final existingIds = cases.map((c) => c.id).toSet();
 
+    // 按对话时间（来源时间）倒序：同一对话的多条条目聚在一起，最新对话在最上。
     final entries = memory.entries.where((e) => !e.isDeleted).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      ..sort((a, b) {
+        final at = a.sources.isEmpty ? a.createdAt : a.sources.first.happenedAt;
+        final bt = b.sources.isEmpty ? b.createdAt : b.sources.first.happenedAt;
+        return bt.compareTo(at);
+      });
     final grouped = <MemoryKind, List<MemoryEntry>>{};
     for (final entry in entries) {
       grouped.putIfAbsent(entry.kind, () => []).add(entry);
@@ -201,7 +206,9 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
                             'summary_growth': _sectionKey('summary_growth'),
                           },
                         ),
-                    ] else
+                      // 思考框出现（正在生成 / 生成完成/失败）时不再显示
+                      // 空态，避免空态文案被思考框往下推。
+                    ] else if (_memoryStatus == ThinkingStatus.idle)
                       _MemoryEmptyState(mode: mode),
                     const SizedBox(height: 22),
                     for (final kind in boards) ...[
@@ -1107,9 +1114,6 @@ class _MemoryEntryCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final meta = _kindMeta(entry.kind);
-    // 「仍在 / 变化 / 新观察」是变化标签，抽出来单独渲染成小标签，
-    // 不再作为文本块用冒号拼在一起。
-    final parsed = splitMemoryEntryLabel(cleanMemoryText(entry.summary));
     final sourceGone =
         entry.sourceGone ||
         (entry.sources.isNotEmpty &&
@@ -1150,12 +1154,8 @@ class _MemoryEntryCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (parsed.label != null) ...[
-                      _MemoryChangeChip(mode: mode, label: parsed.label!),
-                      const SizedBox(height: 7),
-                    ],
                     Text(
-                      parsed.text,
+                      cleanMemoryText(entry.summary),
                       style: TextStyle(
                         color: mode.cardBody,
                         fontSize: 13,
@@ -1239,60 +1239,6 @@ class _ConversationLabelText extends StatelessWidget {
     return Text(
       title.isEmpty ? dateTime : '$title  ·  $dateTime',
       style: TextStyle(color: mode.cardBody, fontSize: 13),
-    );
-  }
-}
-
-/// 记忆条目的变化状态小标签：仍在（未变）/ 变化（有更新）/ 新观察（新增）。
-class _MemoryChangeChip extends StatelessWidget {
-  const _MemoryChangeChip({required this.mode, required this.label});
-
-  final ModeTheme mode;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final (icon, fg, bg) = switch (label) {
-      '变化' => (
-        Icons.swap_horiz_rounded,
-        mode.primary,
-        mode.primary.withValues(alpha: 0.13),
-      ),
-      '新观察' => (
-        Icons.fiber_new_rounded,
-        mode.primary,
-        mode.primary.withValues(alpha: 0.08),
-      ),
-      // 「仍在」用中性灰，表示状态延续、没有新变化。
-      _ => (
-        Icons.repeat_rounded,
-        mode.cardMuted,
-        mode.cardBorder.withValues(alpha: 0.45),
-      ),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: fg.withValues(alpha: 0.28), width: 1),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 11, color: fg),
-          const SizedBox(width: 3),
-          Text(
-            label,
-            style: TextStyle(
-              color: fg,
-              fontSize: 10.5,
-              fontWeight: FontWeight.w700,
-              height: 1.2,
-            ),
-          ),
-        ],
-      ),
     );
   }
 }
