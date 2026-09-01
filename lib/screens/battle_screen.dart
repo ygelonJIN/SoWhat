@@ -831,7 +831,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
           top: 0,
           left: 0,
           right: 0,
-          height: 220,
+          height: 200,
           child: IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(
@@ -902,7 +902,7 @@ class _BattleScreenState extends ConsumerState<BattleScreen> {
           left: 0,
           right: 0,
           bottom: 0,
-          height: 176,
+          height: 180,
           child: IgnorePointer(
             child: DecoratedBox(
               decoration: BoxDecoration(

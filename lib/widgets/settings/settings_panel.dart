@@ -49,8 +49,7 @@ Widget _menuDivider(ModeTheme mode) {
 /// **长按**弹出主题样式的操作菜单（置顶 / 重命名 / 删除）。
 ///
 /// 视觉完全由 `ModeTheme` 驱动：面板底色用 `surface`，搜索框 / 列表行用
-/// `cardBackground`，保证三套模式（共育之树 / 法庭之秤 / 胜负之局）下文字
-/// 均可读、风格各自独立。
+/// `cardBackground`，保证三套模式下文字均可读、风格各自独立。
 class SettingsPanel extends ConsumerStatefulWidget {
   const SettingsPanel({
     super.key,
@@ -217,7 +216,7 @@ class _SettingsPanelState extends ConsumerState<SettingsPanel> {
               left: 0,
               right: 0,
               bottom: 0,
-              height: 120,
+              height: 140,
               child: IgnorePointer(
                 child: DecoratedBox(
                   decoration: BoxDecoration(

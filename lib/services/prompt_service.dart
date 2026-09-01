@@ -22,10 +22,9 @@ class PromptService {
 
 铁律：
 1. 只基于对话内容与双方补充的背景分析，不编造对话里不存在的信息。
-2. 每个结论尽量对应到具体对话；无法对应到证据的判断，标注为「推测」。
-3. 不站队、不迎合任何一方：指出双方的合理之处，也指出双方的问题。
-4. 有同理心，不煽动、不贴标签、不人身攻击。
-5. 本轮分析结束后，把值得记住的新观察更新进长期记忆（双方画像 / 关系状态 / 成长轨迹）。
+2. 不站队、不迎合任何一方
+3. 有同理心，不煽动、不贴标签、不人身攻击。
+4. 本轮分析结束后，把值得记住的新观察更新进长期记忆（双方画像 / 关系状态 / 成长轨迹）。
 
 长期记忆（关于这对情侣）：<memory>
 $memoryBlock
@@ -47,7 +46,7 @@ $conversation
 6. 时间取向 —— 着眼当下问题，还是纠缠过去、翻旧账、或用未来做要挟？
 7. 解决方案 —— 是否提出可执行的解决方式？还是只列罪状、只要求对方改变？
 
-结尾给「战况小结」：天平偏向谁（谁更占理）、双方各自最需要调整的一点。
+结尾给「结案陈词」：谁更占理、双方各自最需要调整的地方。
 ''';
   }
 
@@ -64,7 +63,7 @@ $conversation
 7. 情感账户 —— 平时积累的信任和爱有多少余额？这次争吵是在透支还是在补充？
 8. 修复意愿 —— 愿不愿意和好？愿不愿意放下对错来保住关系？
 
-结尾给「战况小结」：共育之树的状态（抽芽 / 活着 / 枯萎）、双方各做一个什么爱的动作最能修复。
+结尾给「恋情小结」：这段关系当前的状态、双方各做一个什么爱的动作最能修复。
 ''';
   }
 
@@ -81,7 +80,7 @@ $conversation
 7. 代价收益 —— 表面赢了的人实际付出了什么？输的人又得到了什么？
 8. 战局结果 —— 最终真的分出输赢了吗？还是双输、双赢、或者根本没有胜者？
 
-结尾给「战况小结」：比分与血条状态、以及真正的代价是什么。
+结尾给「对局复盘」：谁占了上风、以及真正的代价是什么。
 ''';
   }
 
@@ -108,14 +107,14 @@ $conversation
     };
     final base = '$law\n\n$mode';
     if (!structured) return base;
-    return '$base\n\n$_structuredContract';
+    return '$base\n\n${_structuredContract(_summaryLabel(view))}';
   }
 
-  static const _structuredContract = '''
+  String _structuredContract(String summaryLabel) => '''
 【输出格式】
 只输出一个 JSON 对象，不要任何其他文字，不要 markdown 代码块：
 {
-  "headline": "一行战况小结",
+  "headline": "$summaryLabel",
   "cards": [
     { "title": "维度名", "conclusion": "结论", "evidence": "证据引用", "speculation": "推测标注" }
   ]
@@ -124,6 +123,17 @@ $conversation
 - cards 覆盖该视角的全部维度（论对错 7 条 / 为爱 8 条 / 比输赢 8 条）。
 - conclusion 针对本轮对话充分展开，写到具体的人和具体的行为，不空泛；evidence 引用对话原文片段；无法对应到证据的判断写进 speculation 并标注「推测」。
 - 严格 JSON，括号闭合，字段用英文双引号。''';
+
+  String _summaryLabel(BattleView view) {
+    switch (view) {
+      case BattleView.love:
+        return '恋情小结';
+      case BattleView.right:
+        return '结案陈词';
+      case BattleView.win:
+        return '对局复盘';
+    }
+  }
 
   /// 导出分析包（V1 通道 A）：一份可直接复制到免费 AI 的完整提示词。
   PromptPackage buildExportPackage({

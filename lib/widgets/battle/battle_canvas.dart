@@ -85,7 +85,7 @@ class _BattleCanvasState extends State<BattleCanvas> {
         final showThinking = status != ThinkingStatus.idle;
         return ListView(
           controller: widget.scrollController,
-          padding: const EdgeInsets.fromLTRB(16, 118, 16, 236),
+          padding: const EdgeInsets.fromLTRB(16, 125, 16, 236),
           children: [
             if (showThinking)
               Padding(
@@ -132,8 +132,8 @@ class _BattleCanvasState extends State<BattleCanvas> {
   }
 }
 
-/// 战况小结块：模型在输出契约 JSON `headline` 字段里给的一行小结
-/// （天平偏向 / 树的状态 / 比分与代价），展示在分析卡片流顶部。
+/// 战况总结块：模型在输出契约 JSON `headline` 字段里给的模式总结
+/// （结案陈词 / 恋情小结 / 对局复盘），展示在分析卡片流顶部。
 class _SummaryBlock extends StatelessWidget {
   const _SummaryBlock({required this.summary, required this.mode});
 
@@ -157,7 +157,7 @@ class _SummaryBlock extends StatelessWidget {
               Icon(Icons.auto_awesome_rounded, size: 13, color: mode.primary),
               const SizedBox(width: 6),
               Text(
-                '战况小结',
+                mode.summaryLabel,
                 style: TextStyle(
                   color: mode.primary,
                   fontSize: 11.5,

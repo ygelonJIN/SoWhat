@@ -465,7 +465,7 @@ class MemoryAppRepository implements AppRepository {
     _emitBattle(conversationId);
   }
 
-  /// 分析完成后更新战场状态（维度卡片 + 战况小结 + 可视化指标）。
+  /// 分析完成后更新战场状态（维度卡片 + 模式战况总结 + 可视化指标）。
   @override
   Future<void> applyAnalysisToBattle({
     required Analysis analysis,

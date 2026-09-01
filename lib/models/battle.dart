@@ -18,9 +18,9 @@ class BattleState {
   final DateTime? thinkingFinishedAt;
   final bool thinkingActive;
 
-  /// 模型产出的战况小结（输出契约 JSON 的 `headline` 字段：天平偏向 /
-  /// 树的状态 / 比分与代价），在分析卡片流顶部展示；与 App 自算的
-  /// [headline]（界面不渲染）相互独立。
+  /// 模型产出的模式战况总结（输出契约 JSON 的 `headline` 字段：
+  /// 结案陈词 / 恋情小结 / 对局复盘），在分析卡片流顶部展示；与 App
+  /// 自算的 [headline]（界面不渲染）相互独立。
   final String? summary;
 
   const BattleState({

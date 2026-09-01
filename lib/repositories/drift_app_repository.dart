@@ -207,7 +207,7 @@ class DriftAppRepository implements AppRepository {
       );
     }
 
-    // 迁移：battle_states 增加战况小结字段（模型 headline）。
+    // 迁移：battle_states 增加模式战况总结字段（模型 headline）。
     // 若上方刚重建过 battle_states 主键，重新读一遍列结构再补列。
     final battleColumnsFresh =
         (await _db.customSelect('PRAGMA table_info(battle_states)').get())

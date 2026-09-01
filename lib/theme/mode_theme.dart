@@ -13,7 +13,7 @@ class ModeTheme {
   const ModeTheme({
     required this.view,
     required this.title,
-    required this.tagline,
+    required this.summaryLabel,
     required this.background,
     required this.surface,
     required this.primary,
@@ -50,8 +50,8 @@ class ModeTheme {
   /// 模式名：为爱 / 论对错 / 比输赢。
   final String title;
 
-  /// 战场视觉的名字：共育之树 / 法庭之秤 / 胜负之局。
-  final String tagline;
+  /// 模式战况总结的名称：恋情小结 / 结案陈词 / 对局复盘。
+  final String summaryLabel;
 
   final Color background;
   final Color surface;
@@ -197,11 +197,11 @@ class ModeTheme {
 
 /// 三模式的预置主题。
 abstract final class ModeThemes {
-  /// 为爱：暖纸色 · 圆润 · 楷体（霞鹜文楷）——「共育之树」。
+  /// 为爱：暖纸色 · 圆润 · 楷体（霞鹜文楷）。
   static const love = ModeTheme(
     view: BattleView.love,
     title: '为爱',
-    tagline: '共育之树',
+    summaryLabel: '恋情小结',
     background: Color(0xFFFAF3E6),
     surface: Color(0xFFF1F7EC),
     primary: Color(0xFF4F7B49),
@@ -231,11 +231,11 @@ abstract final class ModeThemes {
     strongWeight: FontWeight.w700,
   );
 
-  /// 论对错：墨色 · 方正 · 宋体（思源宋体）· 金线 ——「法庭之秤」。
+  /// 论对错：墨色 · 方正 · 宋体（思源宋体）· 金线。
   static const right = ModeTheme(
     view: BattleView.right,
     title: '论对错',
-    tagline: '法庭之秤',
+    summaryLabel: '结案陈词',
     background: Color(0xFF1C1B1E),
     surface: Color(0xFF2D2A24),
     primary: Color(0xFFE0AE40),
@@ -265,7 +265,7 @@ abstract final class ModeThemes {
     strongWeight: FontWeight.w600,
   );
 
-  /// 比输赢：黑白对决 · 系统默认字体 ——「胜负之局」（浅色基底）。
+  /// 比输赢：黑白对决 · 系统默认字体（浅色基底）。
   ///
   /// 统一为浅底深字（与论对错的深底浅字互为反相）：背景浅灰、卡片与面板
   /// 用白/浅灰，主色与发送按钮保持黑色，保留「黑白对决」的个性。
@@ -273,7 +273,7 @@ abstract final class ModeThemes {
   static const win = ModeTheme(
     view: BattleView.win,
     title: '比输赢',
-    tagline: '胜负之局',
+    summaryLabel: '对局复盘',
     background: Color(0xFFF1F1F4),
     surface: Color(0xFFFFFFFF),
     primary: Color(0xFF16161A),

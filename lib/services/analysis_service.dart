@@ -240,9 +240,9 @@ class AnalysisService {
   List<AnalysisCard> parseCards(BattleView view, String raw) =>
       parseAnalysisContent(view, raw).cards;
 
-  /// 解析模型原文 → 维度卡片 + 战况小结（输出契约 JSON 的 `headline` 字段）。
+  /// 解析模型原文 → 维度卡片 + 模式战况总结（输出契约 JSON 的 `headline` 字段）。
   ///
-  /// 战况小结为可选项：模型没给 / 给空串时返回 null，不影响卡片解析。
+  /// 战况总结为可选项：模型没给 / 给空串时返回 null，不影响卡片解析。
   ({List<AnalysisCard> cards, String? summary}) parseAnalysisContent(
     BattleView view,
     String raw,

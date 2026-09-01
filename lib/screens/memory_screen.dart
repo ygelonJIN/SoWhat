@@ -244,7 +244,7 @@ class _MemoryScreenState extends ConsumerState<MemoryScreen> {
               top: 0,
               left: 0,
               right: 0,
-              height: 110,
+              height: 130,
               child: IgnorePointer(
                 child: DecoratedBox(
                   decoration: BoxDecoration(
